@@ -1,0 +1,30 @@
+{
+  "entities": {
+    "users": {
+      "title": "User Profiles",
+      "description": "User account details",
+      "type": "object",
+      "properties": {
+        "uid": { "type": "string" },
+        "email": { "type": "string" },
+        "name": { "type": "string" },
+        "avatar": { "type": "string" },
+        "createdAt": { "type": "string" }
+      },
+      "required": ["uid", "email"]
+    },
+    "user_data": {
+      "title": "User Data Document",
+      "description": "Habits, stats, notes, routines synced in real-time per user",
+      "type": "object",
+      "properties": {
+        "habits": { "type": "array" },
+        "archivedHabits": { "type": "array" },
+        "stats": { "type": "object" },
+        "habitNotes": { "type": "object" },
+        "routines": { "type": "array" },
+        "updatedAt": { "type": "string" }
+      }
+    }
+  }
+}

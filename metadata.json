@@ -1,0 +1,6 @@
+{
+  "name": "HT GRIND",
+  "description": "Advanced Habit & Routine Grind Platform with Gamification, Heatmaps, Analytics & Smart Tracking",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
