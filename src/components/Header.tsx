@@ -33,6 +33,8 @@ interface HeaderProps {
   onOpenRoutineFlow?: () => void;
   onExport: () => void;
   onImport: (e: React.ChangeEvent<HTMLInputElement>) => void;
+  syncStatus?: 'live' | 'syncing' | 'offline';
+  onManualSync?: () => void;
 }
 
 export const Header: React.FC<HeaderProps> = ({
@@ -49,6 +51,8 @@ export const Header: React.FC<HeaderProps> = ({
   onOpenRoutineFlow,
   onExport,
   onImport,
+  syncStatus = 'live',
+  onManualSync,
 }) => {
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [themeMenuOpen, setThemeMenuOpen] = useState(false);
@@ -140,35 +144,63 @@ export const Header: React.FC<HeaderProps> = ({
         {/* ACTIONS & TOOLS */}
         <div className="flex items-center gap-2 flex-wrap">
           
-          {/* USER GOOGLE / EMAIL AUTH BADGE */}
-          <button
-            onClick={onOpenAuth}
-            className="flex items-center gap-2 px-3 py-1.5 rounded-full bg-slate-800/90 hover:bg-slate-800 border border-slate-700/80 text-slate-200 text-xs font-semibold transition-all shadow-sm"
-            title={currentUser ? `Logged in as ${currentUser.name} (${currentUser.email})` : 'Sign in with Google or Email'}
-          >
-            {currentUser ? (
-              <div className="flex items-center gap-1.5">
-                {currentUser.avatar ? (
-                  <img
-                    src={currentUser.avatar}
-                    alt={currentUser.name}
-                    className="w-5 h-5 rounded-full object-cover ring-1 ring-indigo-400"
+          {/* USER GOOGLE / EMAIL AUTH BADGE & MULTI-DEVICE SYNC */}
+          <div className="flex items-center gap-1.5">
+            <button
+              onClick={onOpenAuth}
+              className="flex items-center gap-2 px-3 py-1.5 rounded-full bg-slate-800/90 hover:bg-slate-800 border border-slate-700/80 text-slate-200 text-xs font-semibold transition-all shadow-sm"
+              title={currentUser ? `Logged in as ${currentUser.name} (${currentUser.email}) — Real-time Multi-device sync enabled` : 'Sign in with Google or Email'}
+            >
+              {currentUser ? (
+                <div className="flex items-center gap-1.5">
+                  {currentUser.avatar ? (
+                    <img
+                      src={currentUser.avatar}
+                      alt={currentUser.name}
+                      className="w-5 h-5 rounded-full object-cover ring-1 ring-indigo-400"
+                    />
+                  ) : (
+                    <div className="w-5 h-5 rounded-full bg-indigo-600 flex items-center justify-center text-[10px] font-bold text-white">
+                      {currentUser.name.charAt(0)}
+                    </div>
+                  )}
+                  <span className="hidden sm:inline max-w-[90px] truncate">{currentUser.name}</span>
+                  <span
+                    className={`w-2 h-2 rounded-full ${
+                      syncStatus === 'live'
+                        ? 'bg-emerald-400 animate-pulse'
+                        : syncStatus === 'syncing'
+                        ? 'bg-amber-400 animate-ping'
+                        : 'bg-slate-500'
+                    }`}
+                    title={
+                      syncStatus === 'live'
+                        ? 'Multi-Device Live Sync Connected'
+                        : syncStatus === 'syncing'
+                        ? 'Syncing across devices...'
+                        : 'Local mode'
+                    }
                   />
-                ) : (
-                  <div className="w-5 h-5 rounded-full bg-indigo-600 flex items-center justify-center text-[10px] font-bold text-white">
-                    {currentUser.name.charAt(0)}
-                  </div>
-                )}
-                <span className="hidden sm:inline max-w-[90px] truncate">{currentUser.name}</span>
-                <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />
-              </div>
-            ) : (
-              <div className="flex items-center gap-1.5">
-                <User className="w-3.5 h-3.5 text-indigo-400" />
-                <span>Sign In</span>
-              </div>
+                </div>
+              ) : (
+                <div className="flex items-center gap-1.5">
+                  <User className="w-3.5 h-3.5 text-indigo-400" />
+                  <span>Sign In</span>
+                </div>
+              )}
+            </button>
+
+            {currentUser && onManualSync && (
+              <button
+                onClick={onManualSync}
+                className="hidden md:flex items-center gap-1 px-2 py-1 rounded-full bg-slate-800/60 hover:bg-slate-800 border border-slate-700/60 text-[11px] text-slate-300 font-medium transition-all"
+                title="Force refresh & sync with cloud across your devices"
+              >
+                <Activity className={`w-3 h-3 ${syncStatus === 'syncing' ? 'animate-spin text-amber-400' : 'text-emerald-400'}`} />
+                <span className="hidden lg:inline">{syncStatus === 'syncing' ? 'Syncing...' : 'Live Sync'}</span>
+              </button>
             )}
-          </button>
+          </div>
 
           {/* AI Habit Coach Button (Matching + New Habit button color style) */}
           <button

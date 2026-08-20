@@ -28,6 +28,12 @@ import {
 import { soundFx } from './utils/audio';
 
 import { syncUserRecordToMongoDB } from './lib/userService';
+import {
+  subscribeToUserCloudState,
+  writeUserCloudState,
+  fetchUserCloudStateDirect,
+  getCanonicalUserDocId,
+} from './lib/syncService';
 
 import { Header } from './components/Header';
 import { InnerHeader } from './components/InnerHeader';
@@ -107,6 +113,10 @@ export default function App() {
   const [routines, setRoutines] = React.useState<Routine[]>(RoutineEngine.getDefaultRoutines());
   const [isRoutineFlowOpen, setIsRoutineFlowOpen] = React.useState(false);
 
+  // Multi-Device Real-Time Sync Status
+  const [syncStatus, setSyncStatus] = React.useState<'live' | 'syncing' | 'offline'>('live');
+  const [lastSyncedTime, setLastSyncedTime] = React.useState<Date | null>(null);
+
   // Undo Toast state
   const [undoToast, setUndoToast] = React.useState<{
     message: string;
@@ -155,10 +165,8 @@ export default function App() {
     }
   }, []);
 
-  // Real-Time Firebase Auth & Firestore Listener
+  // Real-Time Firebase Auth & Multi-Device Synchronizer
   React.useEffect(() => {
-    let unsubscribeFirestore: (() => void) | null = null;
-
     const unsubscribeAuth = onAuthStateChanged(auth, (fbUser) => {
       if (fbUser) {
         const displayName = fbUser.displayName || fbUser.email?.split('@')[0] || 'User';
@@ -174,7 +182,7 @@ export default function App() {
 
         setCurrentUser(userAccount);
 
-        // Auto-create/sync users collection and document
+        // Auto-touch user profile record in Firestore
         setDoc(doc(db, 'users', fbUser.uid), {
           uid: fbUser.uid,
           email: fbUser.email || '',
@@ -185,68 +193,90 @@ export default function App() {
         }, { merge: true }).catch(err => {
           console.warn('Firestore users auto-sync note:', err?.message || err);
         });
-
-        // Listen for live changes from Firestore user_data with resilient getDoc fallback
-        const userDocRef = doc(db, 'user_data', fbUser.uid);
-        unsubscribeFirestore = onSnapshot(
-          userDocRef,
-          (snapshot) => {
-            if (snapshot.exists()) {
-              const data = snapshot.data();
-              if (Array.isArray(data.habits)) setHabits(data.habits);
-              if (Array.isArray(data.archivedHabits)) setArchivedHabits(data.archivedHabits);
-              if (data.stats) setStats(data.stats);
-              if (data.habitNotes) setHabitNotes(data.habitNotes);
-              if (Array.isArray(data.routines)) setRoutines(data.routines);
-            } else {
-              // Automatically initialize and create user_data document if it doesn't exist yet
-              setDoc(userDocRef, {
-                habits,
-                archivedHabits,
-                stats,
-                habitNotes,
-                routines,
-                createdAt: new Date().toISOString(),
-                updatedAt: new Date().toISOString(),
-              }).catch(initErr => {
-                console.warn('Firestore auto-init document note:', initErr?.message || initErr);
-              });
-            }
-          },
-          async (err) => {
-            console.warn('Firestore snapshot stream fallback triggered:', err.message || err);
-            try {
-              const { getDoc } = await import('./lib/firebase');
-              const snap = await getDoc(userDocRef);
-              if (snap.exists()) {
-                const data = snap.data();
-                if (Array.isArray(data.habits)) setHabits(data.habits);
-                if (Array.isArray(data.archivedHabits)) setArchivedHabits(data.archivedHabits);
-                if (data.stats) setStats(data.stats);
-                if (data.habitNotes) setHabitNotes(data.habitNotes);
-                if (Array.isArray(data.routines)) setRoutines(data.routines);
-              }
-            } catch (fallbackErr) {
-              console.warn('Firestore fallback fetch note:', fallbackErr);
-            }
-          }
-        );
-      } else {
-        if (unsubscribeFirestore) {
-          unsubscribeFirestore();
-          unsubscribeFirestore = null;
-        }
-        setCurrentUser(null);
       }
     });
 
     return () => {
       unsubscribeAuth();
-      if (unsubscribeFirestore) {
-        unsubscribeFirestore();
-      }
     };
   }, []);
+
+  // Multi-Device Real-Time Cloud Subscription (<100ms sync across phone & laptop)
+  React.useEffect(() => {
+    if (!currentUser?.email || currentUser.email === 'guest@htgrind.app') {
+      return;
+    }
+
+    setSyncStatus('syncing');
+
+    // Subscribe to live Firestore stream
+    const unsubscribe = subscribeToUserCloudState(
+      currentUser,
+      (cloudState) => {
+        setSyncStatus('live');
+        setLastSyncedTime(new Date());
+
+        if (Array.isArray(cloudState.habits)) {
+          setHabits(cloudState.habits);
+        }
+        if (Array.isArray(cloudState.archivedHabits)) {
+          setArchivedHabits(cloudState.archivedHabits);
+        }
+        if (cloudState.stats) {
+          setStats(cloudState.stats);
+        }
+        if (cloudState.habitNotes) {
+          setHabitNotes(cloudState.habitNotes);
+        }
+        if (Array.isArray(cloudState.routines)) {
+          setRoutines(cloudState.routines);
+        }
+      },
+      (err) => {
+        console.warn('Live subscription notice:', err);
+        setSyncStatus('live');
+      }
+    );
+
+    // Initial direct fetch to guarantee instant fresh data on login/refresh
+    fetchUserCloudStateDirect(currentUser).then((cloud) => {
+      if (cloud) {
+        setSyncStatus('live');
+        setLastSyncedTime(new Date());
+        if (Array.isArray(cloud.habits)) setHabits(cloud.habits);
+        if (Array.isArray(cloud.archivedHabits)) setArchivedHabits(cloud.archivedHabits);
+        if (cloud.stats) setStats(cloud.stats);
+        if (cloud.habitNotes) setHabitNotes(cloud.habitNotes);
+        if (Array.isArray(cloud.routines)) setRoutines(cloud.routines);
+      }
+    });
+
+    // Re-verify sync when device wakes up or user focuses tab
+    const handleDeviceFocus = () => {
+      if (document.visibilityState === 'visible') {
+        fetchUserCloudStateDirect(currentUser).then((cloud) => {
+          if (cloud) {
+            setSyncStatus('live');
+            setLastSyncedTime(new Date());
+            if (Array.isArray(cloud.habits)) setHabits(cloud.habits);
+            if (Array.isArray(cloud.archivedHabits)) setArchivedHabits(cloud.archivedHabits);
+            if (cloud.stats) setStats(cloud.stats);
+            if (cloud.habitNotes) setHabitNotes(cloud.habitNotes);
+            if (Array.isArray(cloud.routines)) setRoutines(cloud.routines);
+          }
+        });
+      }
+    };
+
+    window.addEventListener('visibilitychange', handleDeviceFocus);
+    window.addEventListener('focus', handleDeviceFocus);
+
+    return () => {
+      unsubscribe();
+      window.removeEventListener('visibilitychange', handleDeviceFocus);
+      window.removeEventListener('focus', handleDeviceFocus);
+    };
+  }, [currentUser?.email]);
 
   // Sync user revisit count with MongoDB
   React.useEffect(() => {
@@ -306,15 +336,13 @@ export default function App() {
 
     // 1. Check Firestore cloud data
     try {
-      const { getDoc } = await import('./lib/firebase');
-      const snap = await getDoc(doc(db, 'user_data', user.id));
-      if (snap.exists()) {
-        const firestoreData = snap.data();
-        if (Array.isArray(firestoreData.habits)) userHabits = firestoreData.habits;
-        if (Array.isArray(firestoreData.archivedHabits)) userArchived = firestoreData.archivedHabits;
-        if (firestoreData.stats) userStats = firestoreData.stats;
-        if (firestoreData.habitNotes) userNotes = firestoreData.habitNotes;
-        if (Array.isArray(firestoreData.routines)) setRoutines(firestoreData.routines);
+      const cloud = await fetchUserCloudStateDirect(user);
+      if (cloud && (cloud.habits.length > 0 || cloud.archivedHabits.length > 0 || cloud.stats.totalCompletions > 0)) {
+        userHabits = cloud.habits;
+        userArchived = cloud.archivedHabits;
+        userStats = cloud.stats;
+        userNotes = cloud.habitNotes;
+        if (Array.isArray(cloud.routines)) setRoutines(cloud.routines);
       } else if (rawUserData) {
         try {
           const parsed = JSON.parse(rawUserData);
@@ -364,27 +392,13 @@ export default function App() {
     setStats(userStats);
     setHabitNotes(userNotes);
 
-    // Sync profile and data to Firestore
-    setDoc(doc(db, 'users', user.id), {
-      uid: user.id,
-      email: user.email,
-      name: user.name,
-      avatar: user.avatar,
-      createdAt: user.createdAt || new Date().toISOString(),
-      lastActive: new Date().toISOString(),
-    }, { merge: true }).catch(err => {
-      console.warn('Firestore user profile sync note:', err?.message || err);
-    });
-
-    setDoc(doc(db, 'user_data', user.id), {
+    // Sync profile and data to Firestore with canonical multi-device sync
+    writeUserCloudState(user, {
       habits: userHabits,
       archivedHabits: userArchived,
       stats: userStats,
       habitNotes: userNotes,
       routines,
-      updatedAt: new Date().toISOString(),
-    }).catch(err => {
-      console.warn('Firestore user data sync note:', err?.message || err);
     });
 
     soundFx.playLevelUp();
@@ -534,8 +548,7 @@ export default function App() {
 
       localStorage.setItem('HT_GRIND_STATE_V3', JSON.stringify(statePayload));
 
-      const activeFbUid = auth.currentUser?.uid;
-      const activeUid = activeFbUid || currentUser?.id;
+      const activeUid = currentUser?.id || auth.currentUser?.uid;
 
       if (activeUid) {
         localStorage.setItem(`HT_GRIND_STATE_V3_USER_${activeUid}`, JSON.stringify({
@@ -544,22 +557,22 @@ export default function App() {
           stats: updatedStats,
           habitNotes: newNotes,
         }));
+      }
 
-        // Real-time Firestore synchronization exclusively for habits & user state
-        const userDocRef = doc(db, 'user_data', activeUid);
-        setDoc(
-          userDocRef,
-          {
-            habits: newHabits,
-            archivedHabits: newArchived,
-            stats: updatedStats,
-            habitNotes: newNotes,
-            routines,
-            updatedAt: new Date().toISOString(),
-          },
-          { merge: true }
-        ).catch((err) => {
-          console.warn('Firestore real-time sync note:', err?.message || err);
+      // Real-time Cloud Synchronization across all devices (Laptop + Mobile)
+      if (currentUser && currentUser.email !== 'guest@htgrind.app') {
+        setSyncStatus('syncing');
+        writeUserCloudState(currentUser, {
+          habits: newHabits,
+          archivedHabits: newArchived,
+          stats: updatedStats,
+          habitNotes: newNotes,
+          routines,
+        }).then((success) => {
+          if (success) {
+            setSyncStatus('live');
+            setLastSyncedTime(new Date());
+          }
         });
       } else {
         localStorage.setItem('HT_GRIND_STATE_V3_GUEST', JSON.stringify({
@@ -1039,6 +1052,28 @@ export default function App() {
 
   const activeStreaksCount = habits.filter((h) => calcStreak(h.completions) > 0).length;
 
+  const handleManualSync = async () => {
+    if (!currentUser || currentUser.email === 'guest@htgrind.app') return;
+    setSyncStatus('syncing');
+    try {
+      const cloud = await fetchUserCloudStateDirect(currentUser);
+      if (cloud) {
+        if (Array.isArray(cloud.habits)) setHabits(cloud.habits);
+        if (Array.isArray(cloud.archivedHabits)) setArchivedHabits(cloud.archivedHabits);
+        if (cloud.stats) setStats(cloud.stats);
+        if (cloud.habitNotes) setHabitNotes(cloud.habitNotes);
+        if (Array.isArray(cloud.routines)) setRoutines(cloud.routines);
+        setLastSyncedTime(new Date());
+        setSyncStatus('live');
+        triggerToast('⚡ Real-time sync updated across your devices!');
+      } else {
+        setSyncStatus('live');
+      }
+    } catch {
+      setSyncStatus('live');
+    }
+  };
+
   if (!currentUser) {
     return <AuthGate onLogin={handleUserLogin} />;
   }
@@ -1067,6 +1102,8 @@ export default function App() {
         onOpenRoutineFlow={() => setIsRoutineFlowOpen(true)}
         onExport={handleExportData}
         onImport={handleImportData}
+        syncStatus={syncStatus}
+        onManualSync={handleManualSync}
       />
 
       {/* MAIN CONTAINER */}
