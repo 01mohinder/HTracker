@@ -165,9 +165,11 @@ export const AICoachModal: React.FC<AICoachModalProps> = ({
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           habits: habits.map((h) => ({
+            id: h.id,
             name: h.name,
             category: h.category,
             goal: h.goal,
+            completions: h.completions || {},
             completionsCount: Object.values(h.completions || {}).reduce((a, b) => a + b, 0),
           })),
           userStats: stats,

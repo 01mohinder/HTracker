@@ -66,14 +66,15 @@ function toDateKey(d: Date): string {
 /**
  * Calculates consecutive active streak for a single habit
  */
-export function calculatePreciseStreak(completions: Record<string, number>): number {
+export function calculatePreciseStreak(completions?: Record<string, number>): number {
+  const comps = completions || {};
   let streak = 0;
   const today = new Date();
   today.setHours(0, 0, 0, 0);
 
   // Check today first
   const todayKey = toDateKey(today);
-  const completedToday = (completions[todayKey] || 0) > 0;
+  const completedToday = (comps[todayKey] || 0) > 0;
 
   let checkDate = new Date(today);
   if (!completedToday) {
@@ -83,7 +84,7 @@ export function calculatePreciseStreak(completions: Record<string, number>): num
 
   while (true) {
     const key = toDateKey(checkDate);
-    if ((completions[key] || 0) > 0) {
+    if ((comps[key] || 0) > 0) {
       streak++;
       checkDate.setDate(checkDate.getDate() - 1);
     } else {
@@ -99,10 +100,12 @@ export function calculatePreciseStreak(completions: Record<string, number>): num
  * r = (N * Σxy - ΣxΣy) / sqrt([NΣx² - (Σx)²][NΣy² - (Σy)²])
  */
 export function calculatePearsonCorrelation(
-  completionsA: Record<string, number>,
-  completionsB: Record<string, number>,
+  completionsA?: Record<string, number>,
+  completionsB?: Record<string, number>,
   lookbackDays = 60
 ): number {
+  const compsA = completionsA || {};
+  const compsB = completionsB || {};
   const today = new Date();
   today.setHours(0, 0, 0, 0);
 
@@ -118,8 +121,8 @@ export function calculatePearsonCorrelation(
     d.setDate(d.getDate() - i);
     const key = toDateKey(d);
 
-    const x = (completionsA[key] || 0) > 0 ? 1 : 0;
-    const y = (completionsB[key] || 0) > 0 ? 1 : 0;
+    const x = (compsA[key] || 0) > 0 ? 1 : 0;
+    const y = (compsB[key] || 0) > 0 ? 1 : 0;
 
     sumX += x;
     sumY += y;
@@ -155,7 +158,11 @@ export function calculateCategoryEntropy(habits: HabitData[], lookbackDays = 30)
   const today = new Date();
   today.setHours(0, 0, 0, 0);
 
-  habits.forEach((habit) => {
+  const safeHabits = Array.isArray(habits) ? habits : [];
+
+  safeHabits.forEach((habit) => {
+    if (!habit) return;
+    const comps = habit.completions || {};
     const cat = habit.category || 'General';
     if (!categoryCounts[cat]) categoryCounts[cat] = 0;
 
@@ -163,7 +170,7 @@ export function calculateCategoryEntropy(habits: HabitData[], lookbackDays = 30)
       const d = new Date(today);
       d.setDate(d.getDate() - i);
       const key = toDateKey(d);
-      const count = habit.completions[key] || 0;
+      const count = comps[key] || 0;
       if (count > 0) {
         categoryCounts[cat] += count;
         totalCompletions += count;
@@ -227,6 +234,7 @@ export function computeMarkovForecast(
   const today = new Date();
   today.setHours(0, 0, 0, 0);
 
+  const comps = habit?.completions || {};
   let successAfterSuccess = 0;
   let totalSuccess = 0;
   let recentCompletions14d = 0;
@@ -240,8 +248,8 @@ export function computeMarkovForecast(
     dNext.setDate(dNext.getDate() - (i - 1));
     const nextKey = toDateKey(dNext);
 
-    const completedPrev = (habit.completions[prevKey] || 0) > 0;
-    const completedNext = (habit.completions[nextKey] || 0) > 0;
+    const completedPrev = (comps[prevKey] || 0) > 0;
+    const completedNext = (comps[nextKey] || 0) > 0;
 
     if (completedPrev) {
       totalSuccess++;
@@ -285,7 +293,12 @@ export function runComprehensiveStatisticalAudit(
   const today = new Date();
   today.setHours(0, 0, 0, 0);
 
-  if (habits.length === 0) {
+  const safeHabits = (Array.isArray(habits) ? habits : []).filter(Boolean).map((h) => ({
+    ...h,
+    completions: h.completions || {},
+  }));
+
+  if (safeHabits.length === 0) {
     return {
       grindScore: 100,
       rawScore: 100,
@@ -329,15 +342,16 @@ export function runComprehensiveStatisticalAudit(
     const weight = Math.exp(-0.04 * i);
 
     let dayCompletions = 0;
-    habits.forEach((h) => {
-      const count = h.completions[key] || 0;
+    safeHabits.forEach((h) => {
+      const comps = h.completions || {};
+      const count = comps[key] || 0;
       if (count > 0) {
         dayCompletions++;
       }
     });
 
-    weightedSum += Math.min(dayCompletions, habits.length) * weight;
-    maxPossibleWeightedSum += habits.length * weight;
+    weightedSum += Math.min(dayCompletions, safeHabits.length) * weight;
+    maxPossibleWeightedSum += safeHabits.length * weight;
 
     if (i < 7) {
       recent7dCompletions += dayCompletions;
@@ -351,7 +365,7 @@ export function runComprehensiveStatisticalAudit(
   }
 
   const rawScore = maxPossibleWeightedSum > 0 ? (weightedSum / maxPossibleWeightedSum) * 100 : 85;
-  const entropyResult = calculateCategoryEntropy(habits, lookbackDays);
+  const entropyResult = calculateCategoryEntropy(safeHabits, lookbackDays);
 
   // Calibrate score with entropy balance factor
   const entropyAdjustment = 0.85 + 0.15 * entropyResult.score;
@@ -412,24 +426,24 @@ export function runComprehensiveStatisticalAudit(
     insight: string;
   }> = [];
 
-  for (let a = 0; a < habits.length; a++) {
-    for (let b = a + 1; b < habits.length; b++) {
-      const r = calculatePearsonCorrelation(habits[a].completions, habits[b].completions, 60);
+  for (let a = 0; a < safeHabits.length; a++) {
+    for (let b = a + 1; b < safeHabits.length; b++) {
+      const r = calculatePearsonCorrelation(safeHabits[a].completions, safeHabits[b].completions, 60);
       let synergyType: 'synergistic' | 'independent' | 'conflicting' = 'independent';
       let insight = 'No strong correlation detected.';
 
       if (r >= 0.4) {
         synergyType = 'synergistic';
-        insight = `Completing "${habits[a].name}" significantly increases the likelihood of completing "${habits[b].name}" (+${Math.round(r * 100)}% synergy).`;
+        insight = `Completing "${safeHabits[a].name}" significantly increases the likelihood of completing "${safeHabits[b].name}" (+${Math.round(r * 100)}% synergy).`;
       } else if (r <= -0.3) {
         synergyType = 'conflicting';
-        insight = `Time or energy conflict: completing "${habits[a].name}" correlates with lower completion of "${habits[b].name}".`;
+        insight = `Time or energy conflict: completing "${safeHabits[a].name}" correlates with lower completion of "${safeHabits[b].name}".`;
       }
 
       if (Math.abs(r) >= 0.25) {
         correlations.push({
-          habitA: habits[a].name,
-          habitB: habits[b].name,
+          habitA: safeHabits[a].name,
+          habitB: safeHabits[b].name,
           correlationCoefficient: r,
           synergyType,
           insight,
@@ -441,7 +455,7 @@ export function runComprehensiveStatisticalAudit(
   correlations.sort((x, y) => Math.abs(y.correlationCoefficient) - Math.abs(x.correlationCoefficient));
 
   // Forecasts for each habit
-  const forecasts = habits.slice(0, 10).map((h) => {
+  const forecasts = safeHabits.slice(0, 10).map((h) => {
     const streak = calculatePreciseStreak(h.completions);
     const forecast = computeMarkovForecast(h, 60);
     return {
@@ -456,7 +470,7 @@ export function runComprehensiveStatisticalAudit(
     grindScore: calibratedScore,
     rawScore: Math.round(rawScore),
     momentumScore,
-    consistencyIndex: Math.min(100, Math.round((recent7dCompletions / (habits.length * 7 || 1)) * 100)),
+    consistencyIndex: Math.min(100, Math.round((recent7dCompletions / (safeHabits.length * 7 || 1)) * 100)),
     trend,
     burnoutRisk,
     categoryEntropy: entropyResult,

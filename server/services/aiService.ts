@@ -60,8 +60,13 @@ export async function generateHabitCoachAdvice(params: CoachAdviceParams): Promi
   const { habits = [], userStats, userQuery, coachMode = "high-performance", imageBase64 } = params;
   const ai = getGenAI();
 
+  const safeHabits = (Array.isArray(habits) ? habits : []).filter(Boolean).map((h) => ({
+    ...h,
+    completions: h.completions || {},
+  }));
+
   // Run statistical analytics engine to feed the AI coach mathematical context
-  const statisticalAudit = runComprehensiveStatisticalAudit(habits, 30);
+  const statisticalAudit = runComprehensiveStatisticalAudit(safeHabits, 30);
 
   const personaPrefix =
     coachMode === "neuroscience"

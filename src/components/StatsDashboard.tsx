@@ -54,7 +54,8 @@ export const StatsDashboard: React.FC<StatsDashboardProps> = ({ habits }) => {
     const key = formatDate(d);
     let totalCount = 0;
     filteredHabits.forEach((h) => {
-      totalCount += h.completions[key] || 0;
+      const comps = h.completions || {};
+      totalCount += comps[key] || 0;
     });
     trendData.push({
       date: d.toLocaleDateString('en-US', { month: 'numeric', day: 'numeric' }),
@@ -65,17 +66,18 @@ export const StatsDashboard: React.FC<StatsDashboardProps> = ({ habits }) => {
   // Per habit breakdown
   const habitBreakdownData = habits.map((h) => {
     let sum = 0;
+    const comps = h.completions || {};
     for (let i = 0; i < periodDays; i++) {
       const d = addDays(today, -i);
       const key = formatDate(d);
-      sum += h.completions[key] || 0;
+      sum += comps[key] || 0;
     }
     return {
       name: h.name,
       icon: h.icon || '📌',
       color: h.color || '#818cf8',
       total: sum,
-      streak: calcStreak(h.completions),
+      streak: calcStreak(comps),
     };
   });
 
@@ -89,7 +91,8 @@ export const StatsDashboard: React.FC<StatsDashboardProps> = ({ habits }) => {
     let dayIdx = d.getDay() - 1;
     if (dayIdx < 0) dayIdx = 6;
     filteredHabits.forEach((h) => {
-      dowCounts[dayIdx] += h.completions[key] || 0;
+      const comps = h.completions || {};
+      dowCounts[dayIdx] += comps[key] || 0;
     });
   }
 

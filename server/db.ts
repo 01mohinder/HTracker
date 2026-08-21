@@ -50,8 +50,13 @@ const activeConfig = {
   appId: process.env.VITE_FIREBASE_APP_ID || firebaseConfig.appId,
 };
 
+const cfg = firebaseConfig as any;
+const dbId = cfg.firestoreDatabaseId && cfg.firestoreDatabaseId !== '(default)'
+  ? cfg.firestoreDatabaseId
+  : undefined;
+
 const app = !getApps().length ? initializeApp(activeConfig) : getApp();
-const firestoreDb = getFirestore(app);
+const firestoreDb = dbId ? getFirestore(app, dbId) : getFirestore(app);
 
 export async function getFirestoreDb() {
   return firestoreDb;

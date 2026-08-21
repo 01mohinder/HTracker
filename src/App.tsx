@@ -33,6 +33,7 @@ import {
   writeUserCloudState,
   fetchUserCloudStateDirect,
   getCanonicalUserDocId,
+  getDeviceId,
 } from './lib/syncService';
 
 import { Header } from './components/Header';
@@ -144,8 +145,10 @@ export default function App() {
         setCurrentUser(userAccount);
 
         // Auto-touch user profile record in Firestore
-        setDoc(doc(db, 'users', fbUser.uid), {
+        const userDocId = getCanonicalUserDocId(userAccount) || fbUser.uid;
+        setDoc(doc(db, 'users', userDocId), {
           uid: fbUser.uid,
+          docId: userDocId,
           email: fbUser.email || '',
           name: formattedName,
           avatar: fbUser.photoURL || `https://api.dicebear.com/7.x/avataaars/svg?seed=${encodeURIComponent(displayName)}`,
@@ -159,8 +162,8 @@ export default function App() {
         try {
           const cloud = await fetchUserCloudStateDirect(userAccount);
           if (cloud) {
-            if (Array.isArray(cloud.habits)) setHabits(cloud.habits);
-            if (Array.isArray(cloud.archivedHabits)) setArchivedHabits(cloud.archivedHabits);
+            setHabits(Array.isArray(cloud.habits) ? cloud.habits : []);
+            setArchivedHabits(Array.isArray(cloud.archivedHabits) ? cloud.archivedHabits : []);
             if (cloud.stats) setStats(cloud.stats);
             if (cloud.habitNotes) setHabitNotes(cloud.habitNotes);
             if (Array.isArray(cloud.routines)) setRoutines(cloud.routines);
@@ -180,7 +183,8 @@ export default function App() {
 
   // Multi-Device Real-Time Cloud Subscription (<100ms sync across phone & laptop)
   React.useEffect(() => {
-    if (!currentUser?.email || currentUser.email === 'guest@htgrind.app') {
+    const docId = getCanonicalUserDocId(currentUser);
+    if (!docId) {
       return;
     }
 
@@ -193,6 +197,7 @@ export default function App() {
         setSyncStatus('live');
         setLastSyncedTime(new Date());
 
+        // Always hydrate latest real-time state from Firestore
         if (Array.isArray(cloudState.habits)) {
           setHabits(cloudState.habits);
         }
@@ -253,7 +258,7 @@ export default function App() {
       window.removeEventListener('visibilitychange', handleDeviceFocus);
       window.removeEventListener('focus', handleDeviceFocus);
     };
-  }, [currentUser?.email]);
+  }, [currentUser?.email, currentUser?.id]);
 
   // Sync user revisit count with MongoDB
   React.useEffect(() => {
@@ -270,19 +275,71 @@ export default function App() {
     }
   }, [currentUser?.email]);
 
-  // Auto-calibrate Level & XP from habit completions on startup if XP is 0 or uncalibrated
-  React.useEffect(() => {
-    if (habits.length > 0) {
-      const calculated = recalculateStatsFromCompletions(habits, archivedHabits, stats);
-      if (stats.xp === 0 && calculated.totalCompletions > 0) {
-        setStats(calculated);
-        saveState(habits, archivedHabits, calculated, habitNotes);
+  // Master Atomic Cloud Firebase State Committer
+  const commitCloudState = React.useCallback(
+    (
+      newHabits: Habit[],
+      newArchived: Habit[] = archivedHabits,
+      newStats: UserStats = stats,
+      newNotes: Record<string, string> = habitNotes,
+      newRoutines: Routine[] = routines,
+      newTheme: string = theme,
+      newSound: boolean = soundEnabled
+    ) => {
+      // Calculate Grind Score
+      let totalScore = 0;
+      newHabits.forEach((h) => {
+        totalScore += calcHabitGrindScore(h);
+      });
+      const avgScore = newHabits.length
+        ? Math.round(totalScore / newHabits.length)
+        : 0;
+
+      const updatedStats = { ...newStats, grindScore: avgScore };
+
+      setHabits(newHabits);
+      setArchivedHabits(newArchived);
+      setStats(updatedStats);
+      setHabitNotes(newNotes);
+      setRoutines(newRoutines);
+
+      // Real-time Cloud Firebase Synchronization across all devices
+      if (currentUser) {
+        setSyncStatus('syncing');
+        writeUserCloudState(currentUser, {
+          habits: newHabits,
+          archivedHabits: newArchived,
+          stats: updatedStats,
+          habitNotes: newNotes,
+          routines: newRoutines,
+        }).then((success) => {
+          if (success) {
+            setSyncStatus('live');
+            setLastSyncedTime(new Date());
+          }
+        });
       }
-    }
-  }, [habits.length]);
+    },
+    [currentUser, archivedHabits, stats, habitNotes, routines, theme, soundEnabled]
+  );
+
+  // Backward compatible saveState proxy
+  const saveState = React.useCallback(
+    (
+      newHabits = habits,
+      newArchived = archivedHabits,
+      newStats = stats,
+      newNotes = habitNotes,
+      newTheme = theme,
+      newSound = soundEnabled
+    ) => {
+      commitCloudState(newHabits, newArchived, newStats, newNotes, routines, newTheme, newSound);
+    },
+    [commitCloudState, habits, archivedHabits, stats, habitNotes, routines, theme, soundEnabled]
+  );
 
   // Login & Logout Handlers
-  const handleUserLogin = async (user: UserAccount, options?: { importGuestData?: boolean }) => {
+  const handleUserLogin = async (user: UserAccount) => {
     setCurrentUser(user);
     setIsAuthModalOpen(false);
 
@@ -297,29 +354,17 @@ export default function App() {
       achievements: ['welcome_badge'],
     };
     let userNotes: Record<string, string> = {};
+    let userRoutines: Routine[] = [];
 
     // Check Cloud Firebase Firestore state
     try {
       const cloud = await fetchUserCloudStateDirect(user);
-      if (cloud && (cloud.habits.length > 0 || cloud.archivedHabits.length > 0 || cloud.stats.totalCompletions > 0)) {
-        userHabits = cloud.habits;
-        userArchived = cloud.archivedHabits;
-        userStats = cloud.stats;
-        userNotes = cloud.habitNotes;
-        if (Array.isArray(cloud.routines)) setRoutines(cloud.routines);
-      } else {
-        // First time cloud user account
-        userHabits = [];
-        userArchived = [];
-        userStats = {
-          level: 1,
-          xp: 0,
-          totalCompletions: 0,
-          grindScore: 0,
-          streakFreezes: 1,
-          achievements: ['welcome_badge'],
-        };
-        userNotes = {};
+      if (cloud) {
+        userHabits = Array.isArray(cloud.habits) ? cloud.habits : [];
+        userArchived = Array.isArray(cloud.archivedHabits) ? cloud.archivedHabits : [];
+        userStats = cloud.stats || userStats;
+        userNotes = cloud.habitNotes || {};
+        userRoutines = Array.isArray(cloud.routines) ? cloud.routines : [];
       }
     } catch (fsErr) {
       console.warn('Firestore user_data initial check note:', fsErr);
@@ -329,15 +374,7 @@ export default function App() {
     setArchivedHabits(userArchived);
     setStats(userStats);
     setHabitNotes(userNotes);
-
-    // Sync state to Cloud Firebase Firestore
-    writeUserCloudState(user, {
-      habits: userHabits,
-      archivedHabits: userArchived,
-      stats: userStats,
-      habitNotes: userNotes,
-      routines,
-    });
+    setRoutines(userRoutines);
 
     soundFx.playLevelUp();
     triggerToast(
@@ -353,17 +390,12 @@ export default function App() {
     stats: UserStats;
     habitNotes: Record<string, string>;
   }) => {
-    setHabits(restoredState.habits);
-    setArchivedHabits(restoredState.archivedHabits);
-    setStats(restoredState.stats);
-    setHabitNotes(restoredState.habitNotes);
-    saveState(
+    commitCloudState(
       restoredState.habits,
       restoredState.archivedHabits,
       restoredState.stats,
       restoredState.habitNotes,
-      theme,
-      soundEnabled
+      routines
     );
     soundFx.playLevelUp();
     triggerToast('Data restored successfully!');
@@ -382,11 +414,7 @@ export default function App() {
     };
     const emptyNotes = {};
 
-    setHabits(emptyHabits);
-    setArchivedHabits(emptyArchived);
-    setStats(emptyStats);
-    setHabitNotes(emptyNotes);
-    saveState(emptyHabits, emptyArchived, emptyStats, emptyNotes, theme, soundEnabled);
+    commitCloudState(emptyHabits, emptyArchived, emptyStats, emptyNotes, []);
     triggerToast('Cloud account data cleared. Ready for fresh habits!');
   };
 
@@ -411,49 +439,6 @@ export default function App() {
     soundFx.playClick();
     triggerToast('Signed out of Cloud Firebase account');
   };
-
-  // Sync state changes to Cloud Firebase Firestore & update grind score
-  const saveState = React.useCallback(
-    (
-      newHabits = habits,
-      newArchived = archivedHabits,
-      newStats = stats,
-      newNotes = habitNotes,
-      newTheme = theme,
-      newSound = soundEnabled
-    ) => {
-      // Recalculate Grind Score
-      let totalScore = 0;
-      newHabits.forEach((h) => {
-        totalScore += calcHabitGrindScore(h);
-      });
-      const avgScore = newHabits.length
-        ? Math.round(totalScore / newHabits.length)
-        : 0;
-
-      const updatedStats = { ...newStats, grindScore: avgScore };
-
-      // Real-time Cloud Firebase Synchronization across all devices (Laptop + Mobile)
-      if (currentUser) {
-        setSyncStatus('syncing');
-        writeUserCloudState(currentUser, {
-          habits: newHabits,
-          archivedHabits: newArchived,
-          stats: updatedStats,
-          habitNotes: newNotes,
-          routines,
-        }).then((success) => {
-          if (success) {
-            setSyncStatus('live');
-            setLastSyncedTime(new Date());
-          }
-        });
-      }
-
-      setStats(updatedStats);
-    },
-    [habits, archivedHabits, stats, habitNotes, theme, soundEnabled, currentUser, routines]
-  );
 
   // Apply Theme to document root
   React.useEffect(() => {
@@ -1263,7 +1248,10 @@ export default function App() {
         isOpen={isRoutineFlowOpen}
         onClose={() => setIsRoutineFlowOpen(false)}
         routines={routines}
-        onUpdateRoutines={(updated) => setRoutines(updated)}
+        onUpdateRoutines={(updated) => {
+          setRoutines(updated);
+          commitCloudState(habits, archivedHabits, stats, habitNotes, updated);
+        }}
       />
 
 

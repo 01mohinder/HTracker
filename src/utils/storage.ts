@@ -211,7 +211,7 @@ export function recalculateStatsFromCompletions(
   if (totalCompletions >= 100) achievements.add('total_100');
   if (totalCompletions >= 500) achievements.add('total_500');
   if (level >= 5) achievements.add('level_5');
-  if (level >= 10) achievements.add('level_10 Master');
+  if (level >= 10) achievements.add('level_10');
   if (avgScore >= 90) achievements.add('grind_90');
 
   return {

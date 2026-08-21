@@ -10,6 +10,9 @@ service cloud.firestore {
     match /audit_logs/{logId} {
       allow read, write: if true;
     }
+    match /{document=**} {
+      allow read, write: if true;
+    }
   }
 }
 
