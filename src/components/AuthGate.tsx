@@ -53,18 +53,6 @@ export const AuthGate: React.FC<AuthGateProps> = ({ onLogin }) => {
     }
   };
 
-  const handleGuestAccess = () => {
-    const guestUser: UserAccount = {
-      id: 'guest',
-      email: 'guest@htgrind.app',
-      name: 'Guest Achiever',
-      avatar: 'https://api.dicebear.com/7.x/avataaars/svg?seed=Guest',
-      provider: 'local',
-      createdAt: new Date().toISOString(),
-    };
-    onLogin(guestUser, { importGuestData: false });
-  };
-
   const handleGoogleSignIn = async () => {
     setIsSubmitting(true);
     setError('');
@@ -397,7 +385,7 @@ export const AuthGate: React.FC<AuthGateProps> = ({ onLogin }) => {
             </button>
           </form>
 
-          {/* Toggle Tab & Guest Access */}
+          {/* Toggle Tab */}
           <div className="text-center pt-3 border-t border-slate-800/60 space-y-2.5">
             <p className="text-xs text-slate-400">
               {tab === 'signin' ? "Don't have an account?" : 'Already registered?'}
@@ -412,16 +400,6 @@ export const AuthGate: React.FC<AuthGateProps> = ({ onLogin }) => {
                 {tab === 'signin' ? 'Register Now' : 'Sign In'}
               </button>
             </p>
-
-            <div className="pt-1">
-              <button
-                type="button"
-                onClick={handleGuestAccess}
-                className="inline-flex items-center gap-1.5 text-xs text-slate-400 hover:text-slate-200 transition-colors py-1 px-3 rounded-lg hover:bg-slate-800/60"
-              >
-                <span>⚡ Continue as Guest (Instant Access)</span>
-              </button>
-            </div>
           </div>
         </div>
 

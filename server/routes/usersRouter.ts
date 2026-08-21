@@ -1,15 +1,15 @@
 import { Router, Request, Response } from "express";
-import { syncUserRecord, listUserRecords, getUserProfile } from "../db";
+import { syncUserRecord, listUserRecords, getUserProfile, recordAuditLog } from "../db";
 
 export const usersRouter = Router();
 
 /**
  * POST /api/users/sync
- * Syncs user metadata (login count, date of first join, email, username) with MongoDB
+ * Syncs user metadata (login count, date of first join, email, username, device telemetry)
  */
 usersRouter.post("/sync", async (req: Request, res: Response) => {
   try {
-    const { userName, email } = req.body || {};
+    const { userName, email, deviceId, deviceType, grindScore, totalHabits } = req.body || {};
 
     if (!email || typeof email !== "string" || !email.trim()) {
       return res.status(400).json({ error: "Missing required field: valid email" });
@@ -18,7 +18,23 @@ usersRouter.post("/sync", async (req: Request, res: Response) => {
       return res.status(400).json({ error: "Missing required field: valid userName" });
     }
 
-    const result = await syncUserRecord(userName, email);
+    const userAgent = req.headers["user-agent"] || "unknown";
+
+    const result = await syncUserRecord(userName, email, {
+      deviceId,
+      deviceType: deviceType || (userAgent.includes("Mobile") ? "Mobile" : "Laptop"),
+      userAgent,
+      grindScore,
+      totalHabits,
+    });
+
+    recordAuditLog({
+      email,
+      action: "sync_state",
+      deviceId: deviceId || "web",
+      metadata: { grindScore, totalHabits },
+    }).catch(() => {});
+
     return res.json({
       ...result.user,
       storage: result.storage,
@@ -35,7 +51,7 @@ usersRouter.post("/sync", async (req: Request, res: Response) => {
 
 /**
  * GET /api/users/profile/:email
- * Gets a user's engagement summary
+ * Gets a user's engagement and telemetry summary
  */
 usersRouter.get("/profile/:email", async (req: Request, res: Response) => {
   try {

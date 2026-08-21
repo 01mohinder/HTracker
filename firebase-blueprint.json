@@ -1,21 +1,23 @@
 {
   "entities": {
-    "users": {
-      "title": "User Profiles",
-      "description": "User account details",
+    "UserProfile": {
+      "title": "UserProfile",
+      "description": "User account profile details and authentication metadata",
       "type": "object",
       "properties": {
         "uid": { "type": "string" },
         "email": { "type": "string" },
         "name": { "type": "string" },
         "avatar": { "type": "string" },
+        "provider": { "type": "string" },
+        "lastActive": { "type": "string" },
         "createdAt": { "type": "string" }
       },
       "required": ["uid", "email"]
     },
-    "user_data": {
-      "title": "User Data Document",
-      "description": "Habits, stats, notes, routines synced in real-time per user",
+    "UserCloudState": {
+      "title": "UserCloudState",
+      "description": "Real-time user habit tracking state, completions, streaks, stats, XP, routines, and notes",
       "type": "object",
       "properties": {
         "habits": { "type": "array" },
@@ -23,8 +25,38 @@
         "stats": { "type": "object" },
         "habitNotes": { "type": "object" },
         "routines": { "type": "array" },
-        "updatedAt": { "type": "string" }
-      }
+        "updatedAt": { "type": "string" },
+        "updatedByDevice": { "type": "string" },
+        "userEmail": { "type": "string" }
+      },
+      "required": ["habits", "stats", "updatedAt"]
+    },
+    "AuditLog": {
+      "title": "AuditLog",
+      "description": "Audit trail of user sync, routine generation, and analytics operations",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "email": { "type": "string" },
+        "action": { "type": "string" },
+        "deviceId": { "type": "string" },
+        "timestamp": { "type": "string" }
+      },
+      "required": ["email", "action", "timestamp"]
+    }
+  },
+  "firestore": {
+    "/users/{userId}": {
+      "schema": "UserProfile",
+      "description": "User profile registry collection"
+    },
+    "/user_data/{docId}": {
+      "schema": "UserCloudState",
+      "description": "Real-time habit, routine, and gamification state collection"
+    },
+    "/audit_logs/{logId}": {
+      "schema": "AuditLog",
+      "description": "Cloud audit log collection"
     }
   }
 }

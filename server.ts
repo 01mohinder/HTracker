@@ -1,18 +1,21 @@
+import "dotenv/config";
 import express from "express";
 import path from "path";
 import { createServer as createViteServer } from "vite";
 import { usersRouter } from "./server/routes/usersRouter";
 import { aiRouter } from "./server/routes/aiRouter";
 import { healthRouter } from "./server/routes/healthRouter";
+import { analyticsRouter } from "./server/routes/analyticsRouter";
+import { habitsRouter } from "./server/routes/habitsRouter";
 
 async function startServer() {
   const app = express();
-  const PORT = Number(process.env.PORT) || 3000;
+  const PORT = 3000;
 
   // Trust reverse proxy for Cloud Run and Nginx
   app.set("trust proxy", true);
 
-  // Security Headers
+  // Security and performance headers middleware
   app.use((req, res, next) => {
     res.setHeader("Strict-Transport-Security", "max-age=31536000; includeSubDomains; preload");
     res.setHeader("X-Content-Type-Options", "nosniff");
@@ -20,16 +23,18 @@ async function startServer() {
     next();
   });
 
-  // Body parsers
-  app.use(express.json({ limit: "10mb" }));
-  app.use(express.urlencoded({ extended: true, limit: "10mb" }));
+  // Body parsers with high-accuracy JSON support
+  app.use(express.json({ limit: "15mb" }));
+  app.use(express.urlencoded({ extended: true, limit: "15mb" }));
 
   // Modular API Routes
   app.use("/api/health", healthRouter);
   app.use("/api/users", usersRouter);
   app.use("/api/ai", aiRouter);
+  app.use("/api/analytics", analyticsRouter);
+  app.use("/api/habits", habitsRouter);
 
-  // Global 404 for unknown /api routes
+  // Global 404 for unmatched /api routes
   app.all("/api/*", (req, res) => {
     res.status(404).json({ error: `API route ${req.method} ${req.originalUrl} not found` });
   });
@@ -49,15 +54,26 @@ async function startServer() {
     });
   }
 
-  // Global error handler
-  app.use((err: any, _req: express.Request, res: express.Response, _next: express.NextFunction) => {
+  // Global error handler with structured diagnostics
+  app.use((err: any, _req: express.Request, res: express.Response, next: express.NextFunction) => {
     console.error("[HT GRIND Server Error]:", err);
-    res.status(500).json({ error: "Internal Server Error", message: err?.message || "Unknown error" });
+    if (res.headersSent) {
+      return next(err);
+    }
+    res.status(500).json({
+      error: "Internal Server Error",
+      message: err?.message || "Unknown error",
+      timestamp: new Date().toISOString(),
+    });
   });
 
   app.listen(PORT, "0.0.0.0", () => {
-    console.log(`[HT GRIND Server] Running on http://0.0.0.0:${PORT}`);
+    console.log(`[HT GRIND Server] Server running on http://0.0.0.0:${PORT}`);
   });
 }
 
-startServer();
+startServer().catch((err) => {
+  console.error("[HT GRIND Fatal Startup Error]:", err);
+  process.exit(1);
+});
+

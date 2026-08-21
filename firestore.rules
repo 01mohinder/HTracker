@@ -7,5 +7,9 @@ service cloud.firestore {
     match /user_data/{userId} {
       allow read, write: if true;
     }
+    match /audit_logs/{logId} {
+      allow read, write: if true;
+    }
   }
 }
+

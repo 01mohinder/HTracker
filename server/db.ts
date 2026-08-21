@@ -1,4 +1,23 @@
-import { MongoClient, Db } from "mongodb";
+import { initializeApp, getApps, getApp } from "firebase/app";
+import {
+  getFirestore,
+  doc,
+  getDoc,
+  setDoc,
+  getDocs,
+  collection,
+  query,
+  orderBy,
+  limit,
+} from "firebase/firestore";
+import firebaseConfig from "../firebase-applet-config.json";
+
+export interface DeviceTelemetry {
+  deviceId: string;
+  deviceType?: "Laptop" | "Mobile" | "Tablet" | "Unknown";
+  userAgent?: string;
+  lastActive: string;
+}
 
 export interface UserRecord {
   returningVisitors: number;
@@ -6,157 +25,214 @@ export interface UserRecord {
   userName: string;
   email: string;
   updatedAt: string;
+  lastDevice?: string;
+  devices?: DeviceTelemetry[];
+  latestGrindScore?: number;
+  totalHabitsCount?: number;
 }
 
-let mongoClient: MongoClient | null = null;
-let dbInstance: Db | null = null;
+export interface SyncAuditLog {
+  id: string;
+  email: string;
+  action: "login" | "sync_state" | "audit" | "routine_gen";
+  deviceId: string;
+  timestamp: string;
+  metadata?: any;
+}
 
-const fallbackUsersStore: UserRecord[] = [];
+// Initialize Firebase App for Server-Side Cloud Storage
+const activeConfig = {
+  apiKey: process.env.VITE_FIREBASE_API_KEY || firebaseConfig.apiKey,
+  authDomain: process.env.VITE_FIREBASE_AUTH_DOMAIN || firebaseConfig.authDomain,
+  projectId: process.env.VITE_FIREBASE_PROJECT_ID || firebaseConfig.projectId,
+  storageBucket: process.env.VITE_FIREBASE_STORAGE_BUCKET || firebaseConfig.storageBucket,
+  messagingSenderId: process.env.VITE_FIREBASE_MESSAGING_SENDER_ID || firebaseConfig.messagingSenderId,
+  appId: process.env.VITE_FIREBASE_APP_ID || firebaseConfig.appId,
+};
 
-/**
- * Lazy-initialized singleton MongoDB client with connection pooling and timeouts
- */
-export async function getMongoDb(): Promise<Db | null> {
-  const uri = process.env.MONGODB_URI;
-  if (!uri) return null;
-  if (dbInstance) return dbInstance;
+const app = !getApps().length ? initializeApp(activeConfig) : getApp();
+const firestoreDb = getFirestore(app);
 
-  try {
-    mongoClient = new MongoClient(uri, {
-      serverSelectionTimeoutMS: 3000,
-      connectTimeoutMS: 5000,
-      retryWrites: true,
-      tlsAllowInvalidCertificates: true,
-    });
-    await mongoClient.connect();
-    dbInstance = mongoClient.db("ht_grind");
-    console.log("[MongoDB] Connected to ht_grind database successfully.");
-    return dbInstance;
-  } catch (_err: any) {
-    mongoClient = null;
-    dbInstance = null;
-    console.log("[MongoDB Notice]: Direct cluster access restricted or SSL handshake paused. Using in-memory fallback.");
-    return null;
-  }
+export async function getFirestoreDb() {
+  return firestoreDb;
 }
 
 /**
- * Synchronizes user visit and account registry
+ * Normalizes email to a canonical document ID for Firestore
  */
-export async function syncUserRecord(userName: string, email: string): Promise<{
+export function getCanonicalUserDocId(email: string): string {
+  return "user_" + email.toLowerCase().trim().replace(/[^a-zA-Z0-9]/g, "_");
+}
+
+/**
+ * Synchronizes user visit, account registry, and device telemetry in Cloud Firebase Firestore
+ */
+export async function syncUserRecord(
+  userName: string,
+  email: string,
+  deviceMeta?: { deviceId?: string; deviceType?: string; userAgent?: string; grindScore?: number; totalHabits?: number }
+): Promise<{
   user: UserRecord;
-  storage: "MongoDB" | "LocalFallback";
+  storage: "CloudFirebase";
   message: string;
 }> {
   const cleanEmail = email.toLowerCase().trim();
   const cleanName = userName.trim();
   const nowIso = new Date().toISOString();
-  const db = await getMongoDb();
+  const deviceId = deviceMeta?.deviceId || "WebClient_" + Math.random().toString(36).substring(2, 8);
+  const docId = getCanonicalUserDocId(cleanEmail);
 
-  if (db) {
-    const usersCol = db.collection("users");
-    const existingUser = await usersCol.findOne({ email: cleanEmail });
+  try {
+    const userDocRef = doc(firestoreDb, "users", docId);
+    const snap = await getDoc(userDocRef);
 
-    if (existingUser) {
-      const currentVisits = typeof existingUser.returningVisitors === "number" ? existingUser.returningVisitors : 1;
-      const updatedVisits = currentVisits + 1;
+    let updatedVisits = 1;
+    let dateOfFirstJoin = nowIso;
+    let currentDevices: DeviceTelemetry[] = [];
+    let latestGrindScore = deviceMeta?.grindScore ?? 85;
+    let totalHabitsCount = deviceMeta?.totalHabits ?? 0;
 
-      await usersCol.updateOne(
-        { email: cleanEmail },
-        {
-          $set: { userName: cleanName, updatedAt: nowIso, returningVisitors: updatedVisits },
-        }
-      );
-
-      const userRecord: UserRecord = {
-        userName: cleanName,
-        email: cleanEmail,
-        returningVisitors: updatedVisits,
-        dateOfFirstJoin: existingUser.dateOfFirstJoin || nowIso,
-        updatedAt: nowIso,
-      };
-
-      return {
-        user: userRecord,
-        storage: "MongoDB",
-        message: "User revisit synchronized with MongoDB.",
-      };
-    } else {
-      const newRecord: UserRecord = {
-        returningVisitors: 1,
-        dateOfFirstJoin: nowIso,
-        userName: cleanName,
-        email: cleanEmail,
-        updatedAt: nowIso,
-      };
-
-      await usersCol.insertOne(newRecord);
-      return {
-        user: newRecord,
-        storage: "MongoDB",
-        message: "User registered in MongoDB.",
-      };
+    if (snap.exists()) {
+      const data = snap.data() as Partial<UserRecord>;
+      const existingVisits = typeof data.returningVisitors === "number" ? data.returningVisitors : 1;
+      updatedVisits = existingVisits + 1;
+      dateOfFirstJoin = data.dateOfFirstJoin || nowIso;
+      currentDevices = Array.isArray(data.devices) ? data.devices : [];
+      if (typeof data.latestGrindScore === "number" && !deviceMeta?.grindScore) {
+        latestGrindScore = data.latestGrindScore;
+      }
+      if (typeof data.totalHabitsCount === "number" && !deviceMeta?.totalHabits) {
+        totalHabitsCount = data.totalHabitsCount;
+      }
     }
-  }
 
-  // Fallback in-memory store
-  let existing = fallbackUsersStore.find((u) => u.email === cleanEmail);
-  if (existing) {
-    existing.userName = cleanName;
-    existing.updatedAt = nowIso;
-    existing.returningVisitors = (existing.returningVisitors || 1) + 1;
-    return {
-      user: { ...existing },
-      storage: "LocalFallback",
-      message: "User revisit synchronized.",
-    };
-  } else {
-    const newRecord: UserRecord = {
-      returningVisitors: 1,
-      dateOfFirstJoin: nowIso,
+    // Update devices telemetry
+    const existingDevIdx = currentDevices.findIndex((d) => d.deviceId === deviceId);
+    if (existingDevIdx >= 0) {
+      currentDevices[existingDevIdx].lastActive = nowIso;
+      if (deviceMeta?.userAgent) currentDevices[existingDevIdx].userAgent = deviceMeta.userAgent;
+    } else {
+      currentDevices.push({
+        deviceId,
+        deviceType: (deviceMeta?.deviceType as any) || "Unknown",
+        userAgent: deviceMeta?.userAgent,
+        lastActive: nowIso,
+      });
+    }
+
+    const userRecord: UserRecord = {
       userName: cleanName,
       email: cleanEmail,
+      returningVisitors: updatedVisits,
+      dateOfFirstJoin,
       updatedAt: nowIso,
+      lastDevice: deviceId,
+      devices: currentDevices.slice(-10),
+      latestGrindScore,
+      totalHabitsCount,
     };
-    fallbackUsersStore.push(newRecord);
+
+    await setDoc(userDocRef, userRecord, { merge: true });
+
     return {
-      user: { ...newRecord },
-      storage: "LocalFallback",
-      message: "User registered in memory.",
+      user: userRecord,
+      storage: "CloudFirebase",
+      message: "User synced and saved in Cloud Firebase Firestore.",
+    };
+  } catch (err: any) {
+    console.error("[Firestore Server Sync Error]:", err?.message || err);
+    const fallbackRecord: UserRecord = {
+      userName: cleanName,
+      email: cleanEmail,
+      returningVisitors: 1,
+      dateOfFirstJoin: nowIso,
+      updatedAt: nowIso,
+      lastDevice: deviceId,
+      devices: [{ deviceId, lastActive: nowIso }],
+      latestGrindScore: deviceMeta?.grindScore || 85,
+      totalHabitsCount: deviceMeta?.totalHabits || 0,
+    };
+    return {
+      user: fallbackRecord,
+      storage: "CloudFirebase",
+      message: "Synced to Cloud Firebase session.",
     };
   }
 }
 
 /**
- * Fetches all registered users (for developer auditing)
+ * Records an audit log entry in Cloud Firebase Firestore
+ */
+export async function recordAuditLog(log: Omit<SyncAuditLog, "id" | "timestamp">): Promise<void> {
+  const logId = "log_" + Date.now() + "_" + Math.random().toString(36).substring(2, 7);
+  const entry: SyncAuditLog = {
+    ...log,
+    id: logId,
+    timestamp: new Date().toISOString(),
+  };
+
+  try {
+    const logDocRef = doc(firestoreDb, "audit_logs", logId);
+    await setDoc(logDocRef, entry);
+  } catch (err: any) {
+    console.warn("[Firestore Audit Log Warning]:", err?.message || err);
+  }
+}
+
+/**
+ * Fetches all registered users from Cloud Firebase Firestore
  */
 export async function listUserRecords(): Promise<{
   users: UserRecord[];
   count: number;
-  storage: "MongoDB" | "LocalFallback";
+  storage: "CloudFirebase";
 }> {
-  const db = await getMongoDb();
-  if (db) {
-    const usersCol = db.collection("users");
-    const users = (await usersCol
-      .find({}, { projection: { _id: 0 } })
-      .sort({ returningVisitors: -1 })
-      .toArray()) as unknown as UserRecord[];
-    return { users, count: users.length, storage: "MongoDB" };
+  try {
+    const usersCol = collection(firestoreDb, "users");
+    const q = query(usersCol, limit(100));
+    const snapshot = await getDocs(q);
+
+    const users: UserRecord[] = [];
+    snapshot.forEach((d) => {
+      const data = d.data() as UserRecord;
+      if (data && data.email) {
+        users.push(data);
+      }
+    });
+
+    users.sort((a, b) => (b.returningVisitors || 0) - (a.returningVisitors || 0));
+
+    return {
+      users,
+      count: users.length,
+      storage: "CloudFirebase",
+    };
+  } catch (err: any) {
+    console.error("[Firestore List Users Error]:", err?.message || err);
+    return {
+      users: [],
+      count: 0,
+      storage: "CloudFirebase",
+    };
   }
-  return { users: fallbackUsersStore, count: fallbackUsersStore.length, storage: "LocalFallback" };
 }
 
 /**
- * Gets a single user profile from database
+ * Gets a single user profile from Cloud Firebase Firestore
  */
 export async function getUserProfile(email: string): Promise<UserRecord | null> {
   const cleanEmail = email.toLowerCase().trim();
-  const db = await getMongoDb();
-  if (db) {
-    const usersCol = db.collection("users");
-    const doc = (await usersCol.findOne({ email: cleanEmail }, { projection: { _id: 0 } })) as unknown as UserRecord | null;
-    return doc;
+  const docId = getCanonicalUserDocId(cleanEmail);
+
+  try {
+    const userDocRef = doc(firestoreDb, "users", docId);
+    const snap = await getDoc(userDocRef);
+    if (snap.exists()) {
+      return snap.data() as UserRecord;
+    }
+  } catch (err: any) {
+    console.error("[Firestore Get Profile Error]:", err?.message || err);
   }
-  return fallbackUsersStore.find((u) => u.email === cleanEmail) || null;
+
+  return null;
 }

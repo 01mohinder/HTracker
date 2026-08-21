@@ -175,10 +175,10 @@ export const Header: React.FC<HeaderProps> = ({
                     }`}
                     title={
                       syncStatus === 'live'
-                        ? 'Multi-Device Live Sync Connected'
+                        ? 'Cloud Firebase Real-Time Sync Connected'
                         : syncStatus === 'syncing'
-                        ? 'Syncing across devices...'
-                        : 'Local mode'
+                        ? 'Syncing to Cloud Firebase...'
+                        : 'Cloud Firebase Connecting'
                     }
                   />
                 </div>
