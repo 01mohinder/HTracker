@@ -1,17 +1,3 @@
-import { initializeApp, getApps, getApp } from "firebase/app";
-import {
-  getFirestore,
-  doc,
-  getDoc,
-  setDoc,
-  getDocs,
-  collection,
-  query,
-  orderBy,
-  limit,
-} from "firebase/firestore";
-import firebaseConfig from "../firebase-applet-config.json";
-
 export interface DeviceTelemetry {
   deviceId: string;
   deviceType?: "Laptop" | "Mobile" | "Tablet" | "Unknown";
@@ -40,37 +26,23 @@ export interface SyncAuditLog {
   metadata?: any;
 }
 
-// Initialize Firebase App for Server-Side Cloud Storage
-const activeConfig = {
-  apiKey: process.env.VITE_FIREBASE_API_KEY || firebaseConfig.apiKey,
-  authDomain: process.env.VITE_FIREBASE_AUTH_DOMAIN || firebaseConfig.authDomain,
-  projectId: process.env.VITE_FIREBASE_PROJECT_ID || firebaseConfig.projectId,
-  storageBucket: process.env.VITE_FIREBASE_STORAGE_BUCKET || firebaseConfig.storageBucket,
-  messagingSenderId: process.env.VITE_FIREBASE_MESSAGING_SENDER_ID || firebaseConfig.messagingSenderId,
-  appId: process.env.VITE_FIREBASE_APP_ID || firebaseConfig.appId,
-};
-
-const cfg = firebaseConfig as any;
-const dbId = cfg.firestoreDatabaseId && cfg.firestoreDatabaseId !== '(default)'
-  ? cfg.firestoreDatabaseId
-  : undefined;
-
-const app = !getApps().length ? initializeApp(activeConfig) : getApp();
-const firestoreDb = dbId ? getFirestore(app, dbId) : getFirestore(app);
+// In-Memory Telemetry and Audit Registry for Express Server
+const userRegistry = new Map<string, UserRecord>();
+const auditLogs: SyncAuditLog[] = [];
 
 export async function getFirestoreDb() {
-  return firestoreDb;
+  return null;
 }
 
 /**
- * Normalizes email to a canonical document ID for Firestore
+ * Normalizes email to a canonical document key
  */
 export function getCanonicalUserDocId(email: string): string {
   return "user_" + email.toLowerCase().trim().replace(/[^a-zA-Z0-9]/g, "_");
 }
 
 /**
- * Synchronizes user visit, account registry, and device telemetry in Cloud Firebase Firestore
+ * Synchronizes user visit, account registry, and device telemetry
  */
 export async function syncUserRecord(
   userName: string,
@@ -87,86 +59,62 @@ export async function syncUserRecord(
   const deviceId = deviceMeta?.deviceId || "WebClient_" + Math.random().toString(36).substring(2, 8);
   const docId = getCanonicalUserDocId(cleanEmail);
 
-  try {
-    const userDocRef = doc(firestoreDb, "users", docId);
-    const snap = await getDoc(userDocRef);
+  let existing = userRegistry.get(docId);
+  let updatedVisits = 1;
+  let dateOfFirstJoin = nowIso;
+  let currentDevices: DeviceTelemetry[] = [];
+  let latestGrindScore = deviceMeta?.grindScore ?? 85;
+  let totalHabitsCount = deviceMeta?.totalHabits ?? 0;
 
-    let updatedVisits = 1;
-    let dateOfFirstJoin = nowIso;
-    let currentDevices: DeviceTelemetry[] = [];
-    let latestGrindScore = deviceMeta?.grindScore ?? 85;
-    let totalHabitsCount = deviceMeta?.totalHabits ?? 0;
-
-    if (snap.exists()) {
-      const data = snap.data() as Partial<UserRecord>;
-      const existingVisits = typeof data.returningVisitors === "number" ? data.returningVisitors : 1;
-      updatedVisits = existingVisits + 1;
-      dateOfFirstJoin = data.dateOfFirstJoin || nowIso;
-      currentDevices = Array.isArray(data.devices) ? data.devices : [];
-      if (typeof data.latestGrindScore === "number" && !deviceMeta?.grindScore) {
-        latestGrindScore = data.latestGrindScore;
-      }
-      if (typeof data.totalHabitsCount === "number" && !deviceMeta?.totalHabits) {
-        totalHabitsCount = data.totalHabitsCount;
-      }
+  if (existing) {
+    updatedVisits = (existing.returningVisitors || 1) + 1;
+    dateOfFirstJoin = existing.dateOfFirstJoin || nowIso;
+    currentDevices = Array.isArray(existing.devices) ? [...existing.devices] : [];
+    if (typeof existing.latestGrindScore === "number" && !deviceMeta?.grindScore) {
+      latestGrindScore = existing.latestGrindScore;
     }
-
-    // Update devices telemetry
-    const existingDevIdx = currentDevices.findIndex((d) => d.deviceId === deviceId);
-    if (existingDevIdx >= 0) {
-      currentDevices[existingDevIdx].lastActive = nowIso;
-      if (deviceMeta?.userAgent) currentDevices[existingDevIdx].userAgent = deviceMeta.userAgent;
-    } else {
-      currentDevices.push({
-        deviceId,
-        deviceType: (deviceMeta?.deviceType as any) || "Unknown",
-        userAgent: deviceMeta?.userAgent,
-        lastActive: nowIso,
-      });
+    if (typeof existing.totalHabitsCount === "number" && !deviceMeta?.totalHabits) {
+      totalHabitsCount = existing.totalHabitsCount;
     }
-
-    const userRecord: UserRecord = {
-      userName: cleanName,
-      email: cleanEmail,
-      returningVisitors: updatedVisits,
-      dateOfFirstJoin,
-      updatedAt: nowIso,
-      lastDevice: deviceId,
-      devices: currentDevices.slice(-10),
-      latestGrindScore,
-      totalHabitsCount,
-    };
-
-    await setDoc(userDocRef, userRecord, { merge: true });
-
-    return {
-      user: userRecord,
-      storage: "CloudFirebase",
-      message: "User synced and saved in Cloud Firebase Firestore.",
-    };
-  } catch (err: any) {
-    console.error("[Firestore Server Sync Error]:", err?.message || err);
-    const fallbackRecord: UserRecord = {
-      userName: cleanName,
-      email: cleanEmail,
-      returningVisitors: 1,
-      dateOfFirstJoin: nowIso,
-      updatedAt: nowIso,
-      lastDevice: deviceId,
-      devices: [{ deviceId, lastActive: nowIso }],
-      latestGrindScore: deviceMeta?.grindScore || 85,
-      totalHabitsCount: deviceMeta?.totalHabits || 0,
-    };
-    return {
-      user: fallbackRecord,
-      storage: "CloudFirebase",
-      message: "Synced to Cloud Firebase session.",
-    };
   }
+
+  // Update devices telemetry
+  const existingDevIdx = currentDevices.findIndex((d) => d.deviceId === deviceId);
+  if (existingDevIdx >= 0) {
+    currentDevices[existingDevIdx].lastActive = nowIso;
+    if (deviceMeta?.userAgent) currentDevices[existingDevIdx].userAgent = deviceMeta.userAgent;
+  } else {
+    currentDevices.push({
+      deviceId,
+      deviceType: (deviceMeta?.deviceType as any) || "Unknown",
+      userAgent: deviceMeta?.userAgent,
+      lastActive: nowIso,
+    });
+  }
+
+  const userRecord: UserRecord = {
+    userName: cleanName,
+    email: cleanEmail,
+    returningVisitors: updatedVisits,
+    dateOfFirstJoin,
+    updatedAt: nowIso,
+    lastDevice: deviceId,
+    devices: currentDevices.slice(-10),
+    latestGrindScore,
+    totalHabitsCount,
+  };
+
+  userRegistry.set(docId, userRecord);
+
+  return {
+    user: userRecord,
+    storage: "CloudFirebase",
+    message: "User session telemetry updated.",
+  };
 }
 
 /**
- * Records an audit log entry in Cloud Firebase Firestore
+ * Records an audit log entry
  */
 export async function recordAuditLog(log: Omit<SyncAuditLog, "id" | "timestamp">): Promise<void> {
   const logId = "log_" + Date.now() + "_" + Math.random().toString(36).substring(2, 7);
@@ -176,68 +124,35 @@ export async function recordAuditLog(log: Omit<SyncAuditLog, "id" | "timestamp">
     timestamp: new Date().toISOString(),
   };
 
-  try {
-    const logDocRef = doc(firestoreDb, "audit_logs", logId);
-    await setDoc(logDocRef, entry);
-  } catch (err: any) {
-    console.warn("[Firestore Audit Log Warning]:", err?.message || err);
+  auditLogs.push(entry);
+  if (auditLogs.length > 500) {
+    auditLogs.shift();
   }
 }
 
 /**
- * Fetches all registered users from Cloud Firebase Firestore
+ * Fetches all registered users from memory registry
  */
 export async function listUserRecords(): Promise<{
   users: UserRecord[];
   count: number;
   storage: "CloudFirebase";
 }> {
-  try {
-    const usersCol = collection(firestoreDb, "users");
-    const q = query(usersCol, limit(100));
-    const snapshot = await getDocs(q);
+  const users = Array.from(userRegistry.values());
+  users.sort((a, b) => (b.returningVisitors || 0) - (a.returningVisitors || 0));
 
-    const users: UserRecord[] = [];
-    snapshot.forEach((d) => {
-      const data = d.data() as UserRecord;
-      if (data && data.email) {
-        users.push(data);
-      }
-    });
-
-    users.sort((a, b) => (b.returningVisitors || 0) - (a.returningVisitors || 0));
-
-    return {
-      users,
-      count: users.length,
-      storage: "CloudFirebase",
-    };
-  } catch (err: any) {
-    console.error("[Firestore List Users Error]:", err?.message || err);
-    return {
-      users: [],
-      count: 0,
-      storage: "CloudFirebase",
-    };
-  }
+  return {
+    users,
+    count: users.length,
+    storage: "CloudFirebase",
+  };
 }
 
 /**
- * Gets a single user profile from Cloud Firebase Firestore
+ * Gets a single user profile from memory registry
  */
 export async function getUserProfile(email: string): Promise<UserRecord | null> {
   const cleanEmail = email.toLowerCase().trim();
   const docId = getCanonicalUserDocId(cleanEmail);
-
-  try {
-    const userDocRef = doc(firestoreDb, "users", docId);
-    const snap = await getDoc(userDocRef);
-    if (snap.exists()) {
-      return snap.data() as UserRecord;
-    }
-  } catch (err: any) {
-    console.error("[Firestore Get Profile Error]:", err?.message || err);
-  }
-
-  return null;
+  return userRegistry.get(docId) || null;
 }

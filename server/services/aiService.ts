@@ -7,7 +7,14 @@ function getGenAI(): GoogleGenAI | null {
   const apiKey = process.env.GEMINI_API_KEY;
   if (!apiKey) return null;
   if (!aiClient) {
-    aiClient = new GoogleGenAI({ apiKey });
+    aiClient = new GoogleGenAI({
+      apiKey,
+      httpOptions: {
+        headers: {
+          'User-Agent': 'aistudio-build',
+        },
+      },
+    });
   }
   return aiClient;
 }
@@ -164,7 +171,13 @@ Ensure recommendations use standard category names (Health, Work, Mind, Fitness,
   }
   contents.push(prompt);
 
-  const modelsToTry = ["gemini-2.5-flash", "gemini-3.7-flash", "gemini-flash-latest"];
+  // Priority model selection order based on capability and low-latency availability
+  const modelsToTry = [
+    "gemini-2.5-flash",
+    "gemini-3.7-flash",
+    "gemini-flash-latest",
+    "gemini-3.1-flash-lite",
+  ];
   let responseText = "";
   let lastError = null;
 
@@ -178,13 +191,16 @@ Ensure recommendations use standard category names (Health, Work, Mind, Fitness,
         responseText = response.text;
         break;
       }
-    } catch (err) {
+    } catch (err: any) {
       lastError = err;
+      // Seamlessly try next model in tier without spamming error logs
     }
   }
 
+  // If all live cloud models are experiencing temporary high-demand spikes (503/429)
   if (!responseText) {
-    throw lastError || new Error("Failed to generate response from Gemini");
+    console.warn("All Gemini models busy or high demand. Generating analytical coach response via statistical engine.");
+    return buildResilientMathematicalAdvice(personaPrefix, statisticalAudit, safeHabits, userQuery);
   }
 
   let recommendedHabits = DEFAULT_RECOMMENDATIONS;
@@ -206,6 +222,64 @@ Ensure recommendations use standard category names (Health, Work, Mind, Fitness,
   return {
     advice: cleanAdvice,
     recommendedHabits,
+    statisticalAudit,
+  };
+}
+
+/**
+ * Builds mathematical, high-precision coach advice when upstream AI experiences temporary 503 load
+ */
+function buildResilientMathematicalAdvice(
+  personaPrefix: string,
+  statisticalAudit: any,
+  habits: any[],
+  userQuery?: string
+) {
+  const lowerQuery = (userQuery || "").toLowerCase();
+  let customRecs = DEFAULT_RECOMMENDATIONS;
+
+  if (lowerQuery.includes("morning") || lowerQuery.includes("start") || lowerQuery.includes("routine")) {
+    customRecs = [
+      { name: "Morning Sunlight & Hydration", category: "Health", icon: "🌅", goal: 7, rationale: "Anchors circadian rhythms for sustained cognitive alertness." },
+      { name: "5m Diaphragmatic Breathing", category: "Mind", icon: "🧘", goal: 7, rationale: "Primes autonomic nervous system before deep focus." },
+      { name: "Top-3 Daily Priority Lock", category: "Work", icon: "⚡", goal: 5, rationale: "Prevents task switching and decision fatigue." },
+    ];
+  } else if (lowerQuery.includes("fitness") || lowerQuery.includes("workout") || lowerQuery.includes("gym") || lowerQuery.includes("weight")) {
+    customRecs = [
+      { name: "Zone 2 Cardio / 8k Steps", category: "Fitness", icon: "🏃", goal: 6, rationale: "Enhances mitochondrial density and baseline stamina." },
+      { name: "Hydration Electrolytes", category: "Health", icon: "💧", goal: 7, rationale: "Optimizes cellular nutrient absorption and recovery." },
+      { name: "Post-Session Mobility Stretch", category: "Fitness", icon: "🧘", goal: 5, rationale: "Alleviates musculoskeletal tension and speeds recovery." },
+    ];
+  } else if (lowerQuery.includes("focus") || lowerQuery.includes("deep work") || lowerQuery.includes("study") || lowerQuery.includes("productivity")) {
+    customRecs = [
+      { name: "90m Uninterrupted Deep Work", category: "Work", icon: "💻", goal: 5, rationale: "Harnesses ultradian rhythm for maximal cognitive output." },
+      { name: "Screen-Free Lunch Reset", category: "Mind", icon: "🥗", goal: 5, rationale: "Recharges attentional reserves for afternoon velocity." },
+      { name: "Daily Win & Lesson Log", category: "Learning", icon: "📓", goal: 5, rationale: "Solidifies daily learning and compounds dopamine reinforcement." },
+    ];
+  }
+
+  const topSynergy = statisticalAudit.topCorrelations && statisticalAudit.topCorrelations[0]
+    ? `\n\n### 🔗 Habit Synergy Detected\n- **${statisticalAudit.topCorrelations[0].habitA}** + **${statisticalAudit.topCorrelations[0].habitB}**: ${statisticalAudit.topCorrelations[0].insight}`
+    : "";
+
+  return {
+    advice: `${personaPrefix}### 🚀 Grind System Audit & Strategic Directives
+
+Based on your active habit tracking profile & statistical analytics audit:
+- **Calibrated Grind Score**: ${statisticalAudit.grindScore}% (Trend: **${statisticalAudit.trend.toUpperCase()}**)
+- **Streak Momentum Score**: ${statisticalAudit.momentumScore}/100
+- **Category Entropy Balance**: ${Math.round(statisticalAudit.categoryEntropy.score * 100)}% (${statisticalAudit.categoryEntropy.balanceQuality})
+- **Weekly Peak Velocity Day**: **${statisticalAudit.weeklyVelocity.peakDay}** (Avg: ${statisticalAudit.weeklyVelocity.averagePerDay} completions/day)
+- **Lowest Velocity Day**: **${statisticalAudit.weeklyVelocity.lowestDay}** (Recommended focal point for habit stacking)
+- **System Burnout Risk**: **${statisticalAudit.burnoutRisk.toUpperCase()}**
+
+### 🎯 3 High-Impact Action Steps
+1. **Friction Reduction on ${statisticalAudit.weeklyVelocity.lowestDay}**: Your completion rate dips on ${statisticalAudit.weeklyVelocity.lowestDay}. Prepare your environment the evening prior to reduce starting friction.
+2. **Anchor New Habits to High-Momentum Triggers**: Stack your newer or harder habits directly following your most consistent daily routine.
+3. **Consistency Threshold**: Aim for 80%+ consistency on core keystone habits to preserve neuroplastic reinforcement without triggering burnout.${topSynergy}
+
+*⚡ Generated using HT Grind's Mathematical Habit Analytics Engine.*`,
+    recommendedHabits: customRecs,
     statisticalAudit,
   };
 }
@@ -255,18 +329,25 @@ Return a strictly valid JSON object with the following schema:
 }
 Ensure durationMinutes for each step are realistic (2 to 45 mins). Only return pure JSON.`;
 
-    const res = await ai.models.generateContent({
-      model: "gemini-2.5-flash",
-      contents: prompt,
-      config: {
-        responseMimeType: "application/json",
-      },
-    });
+    const models = ["gemini-2.5-flash", "gemini-3.7-flash", "gemini-flash-latest"];
+    for (const modelName of models) {
+      try {
+        const res = await ai.models.generateContent({
+          model: modelName,
+          contents: prompt,
+          config: {
+            responseMimeType: "application/json",
+          },
+        });
 
-    const text = res.text?.trim() || "";
-    const parsed = JSON.parse(text);
-    if (parsed && Array.isArray(parsed.steps) && parsed.steps.length > 0) {
-      return parsed;
+        const text = res.text?.trim() || "";
+        const parsed = JSON.parse(text);
+        if (parsed && Array.isArray(parsed.steps) && parsed.steps.length > 0) {
+          return parsed;
+        }
+      } catch (mErr) {
+        // Try next model seamlessly
+      }
     }
   } catch (err) {
     console.warn("generateRoutineFlow fallback:", err);
@@ -317,20 +398,27 @@ Return JSON:
   "cadenceDescription": "e.g. Daily, 3x a week, Weekdays only"
 }`;
 
-    const res = await ai.models.generateContent({
-      model: "gemini-2.5-flash",
-      contents: prompt,
-      config: {
-        responseMimeType: "application/json",
-      },
-    });
+    const models = ["gemini-2.5-flash", "gemini-3.7-flash", "gemini-flash-latest"];
+    for (const modelName of models) {
+      try {
+        const res = await ai.models.generateContent({
+          model: modelName,
+          contents: prompt,
+          config: {
+            responseMimeType: "application/json",
+          },
+        });
 
-    const parsed = JSON.parse(res.text || "{}");
-    if (parsed.name && parsed.category) {
-      return {
-        ...fallback,
-        ...parsed,
-      };
+        const parsed = JSON.parse(res.text || "{}");
+        if (parsed.name && parsed.category) {
+          return {
+            ...fallback,
+            ...parsed,
+          };
+        }
+      } catch (mErr) {
+        // Try next model seamlessly
+      }
     }
   } catch (e) {
     console.warn("parseNaturalLanguageHabit error:", e);
@@ -379,25 +467,32 @@ Return JSON:
   "coachFeedback": "A 1-2 sentence supportive verification comment"
 }`;
 
-    const res = await ai.models.generateContent({
-      model: "gemini-2.5-flash",
-      contents: [
-        {
-          inlineData: {
-            mimeType: "image/jpeg",
-            data: cleanBase64,
+    const models = ["gemini-2.5-flash", "gemini-3.7-flash", "gemini-flash-latest"];
+    for (const modelName of models) {
+      try {
+        const res = await ai.models.generateContent({
+          model: modelName,
+          contents: [
+            {
+              inlineData: {
+                mimeType: "image/jpeg",
+                data: cleanBase64,
+              },
+            },
+            prompt,
+          ],
+          config: {
+            responseMimeType: "application/json",
           },
-        },
-        prompt,
-      ],
-      config: {
-        responseMimeType: "application/json",
-      },
-    });
+        });
 
-    const parsed = JSON.parse(res.text || "{}");
-    if (parsed.detectedHabitName) {
-      return parsed;
+        const parsed = JSON.parse(res.text || "{}");
+        if (parsed.detectedHabitName) {
+          return parsed;
+        }
+      } catch (mErr) {
+        // Try next model seamlessly
+      }
     }
   } catch (e) {
     console.warn("auditHabitImageLog error:", e);

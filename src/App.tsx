@@ -52,11 +52,10 @@ import { AuthGate } from './components/AuthGate';
 import { BadgesModal } from './components/BadgesModal';
 import { DeleteHabitModal } from './components/DeleteHabitModal';
 import { RoutineFlowModal } from './components/RoutineFlowModal';
-import { FirebaseStorageRepository } from './repository/FirebaseStorageRepository';
 import { Routine, RoutineEngine } from './core/engine/RoutineEngine';
 import { eventBus } from './core/events/EventBus';
 import { Logger } from './utils/logger';
-import { auth, db, onAuthStateChanged, doc, setDoc, onSnapshot } from './lib/firebase';
+import { auth, onAuthStateChanged } from './lib/firebase';
 
 import {
   LayoutDashboard,
@@ -126,8 +125,9 @@ export default function App() {
 
   const toastTimerRef = React.useRef<NodeJS.Timeout | null>(null);
   const dragIndexRef = React.useRef<number | null>(null);
+  const debounceTimerRef = React.useRef<NodeJS.Timeout | null>(null);
 
-  // Real-Time Firebase Auth & Multi-Device Synchronizer
+  // Real-Time Firebase Auth Lifecycle
   React.useEffect(() => {
     const unsubscribeAuth = onAuthStateChanged(auth, async (fbUser) => {
       if (fbUser) {
@@ -143,36 +143,21 @@ export default function App() {
         };
 
         setCurrentUser(userAccount);
-
-        // Auto-touch user profile record in Firestore
-        const userDocId = getCanonicalUserDocId(userAccount) || fbUser.uid;
-        setDoc(doc(db, 'users', userDocId), {
-          uid: fbUser.uid,
-          docId: userDocId,
-          email: fbUser.email || '',
-          name: formattedName,
-          avatar: fbUser.photoURL || `https://api.dicebear.com/7.x/avataaars/svg?seed=${encodeURIComponent(displayName)}`,
-          provider: fbUser.providerData[0]?.providerId === 'google.com' ? 'google' : 'email',
-          lastActive: new Date().toISOString(),
-        }, { merge: true }).catch(err => {
-          console.warn('Firestore users auto-sync note:', err?.message || err);
+      } else {
+        // Signed out branch: clear user and active state
+        setCurrentUser(null);
+        setHabits([]);
+        setArchivedHabits([]);
+        setStats({
+          xp: 0,
+          level: 1,
+          grindScore: 0,
+          totalCompletions: 0,
+          streakFreezes: 0,
+          achievements: [],
         });
-
-        // Hydrate state directly from Cloud Firebase Firestore
-        try {
-          const cloud = await fetchUserCloudStateDirect(userAccount);
-          if (cloud) {
-            setHabits(Array.isArray(cloud.habits) ? cloud.habits : []);
-            setArchivedHabits(Array.isArray(cloud.archivedHabits) ? cloud.archivedHabits : []);
-            if (cloud.stats) setStats(cloud.stats);
-            if (cloud.habitNotes) setHabitNotes(cloud.habitNotes);
-            if (Array.isArray(cloud.routines)) setRoutines(cloud.routines);
-            setSyncStatus('live');
-            setLastSyncedTime(new Date());
-          }
-        } catch (err) {
-          console.warn('Firestore initial hydrate error:', err);
-        }
+        setHabitNotes({});
+        setSyncStatus('live');
       }
     });
 
@@ -181,10 +166,9 @@ export default function App() {
     };
   }, []);
 
-  // Multi-Device Real-Time Cloud Subscription (<100ms sync across phone & laptop)
+  // Multi-Device Real-Time Cloud Subscription
   React.useEffect(() => {
-    const docId = getCanonicalUserDocId(currentUser);
-    if (!docId) {
+    if (!currentUser || !currentUser.id) {
       return;
     }
 
@@ -220,7 +204,7 @@ export default function App() {
       }
     );
 
-    // Initial direct fetch to guarantee instant fresh data on login/refresh
+    // Initial direct fetch for fresh data
     fetchUserCloudStateDirect(currentUser).then((cloud) => {
       if (cloud) {
         setSyncStatus('live');
@@ -234,7 +218,7 @@ export default function App() {
     });
 
     // Re-verify sync when device wakes up or user focuses tab
-    const handleDeviceFocus = () => {
+    const handleVisibilityChange = () => {
       if (document.visibilityState === 'visible') {
         fetchUserCloudStateDirect(currentUser).then((cloud) => {
           if (cloud) {
@@ -250,17 +234,17 @@ export default function App() {
       }
     };
 
-    window.addEventListener('visibilitychange', handleDeviceFocus);
-    window.addEventListener('focus', handleDeviceFocus);
+    document.addEventListener('visibilitychange', handleVisibilityChange);
+    window.addEventListener('focus', handleVisibilityChange);
 
     return () => {
       unsubscribe();
-      window.removeEventListener('visibilitychange', handleDeviceFocus);
-      window.removeEventListener('focus', handleDeviceFocus);
+      document.removeEventListener('visibilitychange', handleVisibilityChange);
+      window.removeEventListener('focus', handleVisibilityChange);
     };
-  }, [currentUser?.email, currentUser?.id]);
+  }, [currentUser?.id]);
 
-  // Sync user revisit count with MongoDB
+  // Sync user revisit count with telemetry API
   React.useEffect(() => {
     if (currentUser?.email && currentUser?.name) {
       syncUserRecordToMongoDB(currentUser.name, currentUser.email)
@@ -271,7 +255,7 @@ export default function App() {
             );
           }
         })
-        .catch((err) => console.warn('MongoDB revisit sync error:', err));
+        .catch((err) => console.warn('Telemetry revisit sync error:', err));
     }
   }, [currentUser?.email]);
 
@@ -303,21 +287,32 @@ export default function App() {
       setHabitNotes(newNotes);
       setRoutines(newRoutines);
 
-      // Real-time Cloud Firebase Synchronization across all devices
+      // Debounced Real-Time Cloud Firebase Synchronization
       if (currentUser) {
         setSyncStatus('syncing');
-        writeUserCloudState(currentUser, {
-          habits: newHabits,
-          archivedHabits: newArchived,
-          stats: updatedStats,
-          habitNotes: newNotes,
-          routines: newRoutines,
-        }).then((success) => {
-          if (success) {
-            setSyncStatus('live');
-            setLastSyncedTime(new Date());
-          }
-        });
+
+        if (debounceTimerRef.current) {
+          clearTimeout(debounceTimerRef.current);
+        }
+
+        debounceTimerRef.current = setTimeout(() => {
+          writeUserCloudState(currentUser, {
+            habits: newHabits,
+            archivedHabits: newArchived,
+            stats: updatedStats,
+            habitNotes: newNotes,
+            routines: newRoutines,
+          }).then((success) => {
+            if (success) {
+              setSyncStatus('live');
+              setLastSyncedTime(new Date());
+            } else {
+              setSyncStatus('offline');
+            }
+          }).catch(() => {
+            setSyncStatus('offline');
+          });
+        }, 300);
       }
     },
     [currentUser, archivedHabits, stats, habitNotes, routines, theme, soundEnabled]

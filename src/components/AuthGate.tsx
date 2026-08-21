@@ -73,27 +73,8 @@ export const AuthGate: React.FC<AuthGateProps> = ({ onLogin }) => {
       await executeLoginAndSyncMongo(googleUser);
     } catch (err: any) {
       setIsSubmitting(false);
-      if (
-        err.code === 'auth/operation-not-allowed' ||
-        err.code === 'auth/network-request-failed' ||
-        err.code === 'auth/unauthorized-domain' ||
-        err.message?.includes('network') ||
-        err.message?.includes('unavailable') ||
-        err.message?.includes('authorized domain')
-      ) {
-        console.log('Firebase Auth provider inactive or unauthorized domain. Using HT GRIND Account Mode:', err.code || err.message);
-        const gEmail = email.trim() || 'user.htgrind@gmail.com';
-        const gName = gEmail.split('@')[0].replace('.', ' ');
-        const formattedName = gName.charAt(0).toUpperCase() + gName.slice(1);
-        const localGoogleUser: UserAccount = {
-          id: 'google-local-' + Date.now(),
-          email: gEmail,
-          name: formattedName,
-          avatar: `https://api.dicebear.com/7.x/avataaars/svg?seed=${encodeURIComponent(gName)}`,
-          provider: 'google',
-          createdAt: new Date().toISOString(),
-        };
-        await executeLoginAndSyncMongo(localGoogleUser);
+      if (err.code === 'auth/operation-not-allowed') {
+        setError('Google sign-in is not enabled for this project. Please sign in with email and password.');
       } else if (err.code === 'auth/popup-closed-by-user') {
         setError('Google sign-in popup was closed before completion.');
       } else if (err.code === 'auth/popup-blocked') {
@@ -168,25 +149,8 @@ export const AuthGate: React.FC<AuthGateProps> = ({ onLogin }) => {
       }
     } catch (err: any) {
       setIsSubmitting(false);
-      if (
-        err.code === 'auth/operation-not-allowed' ||
-        err.code === 'auth/network-request-failed' ||
-        err.code === 'auth/unauthorized-domain' ||
-        err.message?.includes('network') ||
-        err.message?.includes('unavailable') ||
-        err.message?.includes('authorized domain')
-      ) {
-        console.log('Firebase Auth operation-not-allowed or offline. Logging in via HT GRIND local account mode:', err.code || err.message);
-        const userName = tab === 'signup' && name ? name : email.split('@')[0];
-        const localUser: UserAccount = {
-          id: 'local-' + email.replace(/[^a-zA-Z0-9]/g, '_'),
-          email,
-          name: userName.charAt(0).toUpperCase() + userName.slice(1),
-          avatar: `https://api.dicebear.com/7.x/avataaars/svg?seed=${encodeURIComponent(userName)}`,
-          provider: 'email',
-          createdAt: new Date().toISOString(),
-        };
-        await executeLoginAndSyncMongo(localUser);
+      if (err.code === 'auth/operation-not-allowed') {
+        setError('Email/password authentication is not enabled in this Firebase project.');
       } else if (err.code === 'auth/email-already-in-use') {
         setError('An account with this email already exists. Please sign in.');
       } else if (err.code === 'auth/invalid-credential' || err.code === 'auth/wrong-password' || err.code === 'auth/user-not-found') {

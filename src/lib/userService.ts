@@ -13,7 +13,7 @@ export const syncUserRecordToCloud = async (
   userName: string,
   email: string,
   extra?: { grindScore?: number; totalHabits?: number }
-): Promise<SyncedUserData> => {
+): Promise<SyncedUserData | null> => {
   try {
     const isMobile = /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(
       navigator.userAgent
@@ -41,17 +41,11 @@ export const syncUserRecordToCloud = async (
     const data: SyncedUserData = await res.json();
     return data;
   } catch (err) {
-    console.warn('[UserSync] Server sync note:', err);
-    return {
-      returningVisitors: 1,
-      dateOfFirstJoin: new Date().toISOString(),
-      userName,
-      email,
-      storage: 'CloudFirebase',
-      message: 'Cloud Firebase active',
-    };
+    console.warn('[UserSync] Server telemetry note:', err);
+    return null;
   }
 };
 
 // Backwards compatibility alias
 export const syncUserRecordToMongoDB = syncUserRecordToCloud;
+

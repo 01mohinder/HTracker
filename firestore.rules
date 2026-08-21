@@ -1,18 +1,40 @@
 rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
+    
+    function isAuthenticated() {
+      return request.auth != null;
+    }
+    
+    function isOwner(userId) {
+      return isAuthenticated() && request.auth.uid == userId;
+    }
+
+    // User profile registry: Only the authenticated user can read/write their own document
     match /users/{userId} {
-      allow read, write: if true;
+      allow read, write: if isOwner(userId);
     }
+    
+    // User habit data: Only the authenticated user can read/write their own habits/routines
     match /user_data/{userId} {
-      allow read, write: if true;
+      allow read, write: if isOwner(userId);
     }
+    
+    // Audit logs: Authenticated users can write log entries and read their own
     match /audit_logs/{logId} {
-      allow read, write: if true;
+      allow create: if isAuthenticated();
+      allow read: if isAuthenticated() && (
+        resource.data.userId == request.auth.uid ||
+        (request.auth.token.email != null && resource.data.email == request.auth.token.email)
+      );
+      allow update, delete: if false;
     }
+    
+    // Global zero-trust default deny rule
     match /{document=**} {
-      allow read, write: if true;
+      allow read, write: if false;
     }
   }
 }
+
 

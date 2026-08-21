@@ -99,18 +99,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({
       setIsSubmitting(false);
       console.error('Google Sign In error:', err);
       if (err.code === 'auth/operation-not-allowed') {
-        const gEmail = email.trim() || 'alex.johnson@gmail.com';
-        const gName = gEmail.split('@')[0].replace('.', ' ');
-        const formattedName = gName.charAt(0).toUpperCase() + gName.slice(1);
-        const localGoogleUser: UserAccount = {
-          id: 'google-local-' + Date.now(),
-          email: gEmail,
-          name: formattedName,
-          avatar: `https://api.dicebear.com/7.x/avataaars/svg?seed=${encodeURIComponent(gName)}`,
-          provider: 'google',
-          createdAt: new Date().toISOString(),
-        };
-        await executeLoginAndSyncMongo(localGoogleUser, { importGuestData });
+        setError('Google sign-in is not enabled for this project. Please sign in with email and password.');
       } else if (err.code === 'auth/popup-closed-by-user') {
         setError('Sign-in popup was closed before completing. Please try again.');
       } else if (err.code === 'auth/popup-blocked') {
@@ -187,17 +176,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({
       setIsSubmitting(false);
       console.error('Firebase Auth error:', err);
       if (err.code === 'auth/operation-not-allowed') {
-        // Fallback to local profile session if Email Auth is disabled in Firebase Console
-        const userName = tab === 'signup' && name ? name : email.split('@')[0];
-        const localUser: UserAccount = {
-          id: 'local-' + email.replace(/[^a-zA-Z0-9]/g, '_'),
-          email,
-          name: userName.charAt(0).toUpperCase() + userName.slice(1),
-          avatar: `https://api.dicebear.com/7.x/avataaars/svg?seed=${encodeURIComponent(userName)}`,
-          provider: 'email',
-          createdAt: new Date().toISOString(),
-        };
-        await executeLoginAndSyncMongo(localUser, { importGuestData });
+        setError('Email/password authentication is not enabled in this Firebase project.');
       } else if (err.code === 'auth/email-already-in-use') {
         setError('An account with this email already exists. Please sign in instead.');
       } else if (err.code === 'auth/invalid-credential' || err.code === 'auth/wrong-password' || err.code === 'auth/user-not-found') {
