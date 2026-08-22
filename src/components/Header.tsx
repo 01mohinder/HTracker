@@ -95,7 +95,7 @@ export const Header: React.FC<HeaderProps> = ({
           >
             <div className="relative flex items-center justify-center p-1 rounded-xl bg-gradient-to-br from-indigo-500/20 via-purple-500/10 to-pink-500/20 border border-indigo-500/30 group-hover:border-indigo-400/60 transition-all duration-300 shadow-md shadow-indigo-500/10 min-w-[36px] min-h-[36px]">
               <img
-                src="/HT%20GRIND.png"
+                src="/ht-grind.png"
                 alt="HT GRIND"
                 className="h-9 sm:h-10 w-auto object-contain transition-transform duration-300 group-hover:scale-105"
                 referrerPolicy="no-referrer"

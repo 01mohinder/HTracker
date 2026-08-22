@@ -5,27 +5,52 @@ interface RateLimitRecord {
   resetAt: number;
 }
 
-export function createRateLimiter(options: { windowMs: number; maxRequests: number; message?: string }) {
-  const { windowMs, maxRequests, message = "Too many requests. Please slow down." } = options;
-  const ipMap = new Map<string, RateLimitRecord>();
+export function createRateLimiter(options: {
+  windowMs: number;
+  maxRequests: number;
+  message?: string;
+  keyGenerator?: (req: Request) => string;
+}) {
+  const {
+    windowMs,
+    maxRequests,
+    message = "Too many requests. Please slow down.",
+    keyGenerator,
+  } = options;
+  const trackingMap = new Map<string, RateLimitRecord>();
 
   // Periodically clean up expired entries
-  setInterval(() => {
+  const interval = setInterval(() => {
     const now = Date.now();
-    for (const [key, record] of ipMap.entries()) {
+    for (const [key, record] of trackingMap.entries()) {
       if (now > record.resetAt) {
-        ipMap.delete(key);
+        trackingMap.delete(key);
       }
     }
   }, Math.max(windowMs, 30000));
 
-  return (req: Request, res: Response, next: NextFunction) => {
-    const clientKey = (req.headers["x-forwarded-for"] as string)?.split(",")[0]?.trim() || req.ip || "unknown_client";
-    const now = Date.now();
+  // Allow Node process to exit cleanly in tests
+  if (interval.unref) {
+    interval.unref();
+  }
 
-    const record = ipMap.get(clientKey);
+  return (req: Request, res: Response, next: NextFunction) => {
+    let clientKey: string;
+    if (keyGenerator) {
+      clientKey = keyGenerator(req);
+    } else {
+      const authUserUid = (req as any).user?.uid;
+      // Use Express validated req.ip (configured via app.set('trust proxy', true))
+      // rather than blindly trusting the raw leftmost X-Forwarded-For header
+      const clientIp = req.ip || req.socket?.remoteAddress || "127.0.0.1";
+      clientKey = authUserUid ? `user:${authUserUid}` : `ip:${clientIp}`;
+    }
+
+    const now = Date.now();
+    const record = trackingMap.get(clientKey);
+
     if (!record || now > record.resetAt) {
-      ipMap.set(clientKey, { count: 1, resetAt: now + windowMs });
+      trackingMap.set(clientKey, { count: 1, resetAt: now + windowMs });
       return next();
     }
 

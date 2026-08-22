@@ -14,16 +14,27 @@ export interface AuthenticatedRequest extends Request {
 }
 
 const PROJECT_ID = process.env.VITE_FIREBASE_PROJECT_ID || firebaseConfig.projectId;
-const ADMIN_EMAILS = new Set([
-  "mohinderb321@gmail.com",
-  ...(process.env.ADMIN_EMAILS ? process.env.ADMIN_EMAILS.split(",").map(e => e.trim().toLowerCase()) : [])
-]);
+
+/**
+ * Retrieves configured admin emails strictly from the environment variable ADMIN_EMAILS.
+ * Prevents hardcoding credentials in source code.
+ */
+function getAdminEmails(): Set<string> {
+  const envEmails = process.env.ADMIN_EMAILS;
+  if (!envEmails) return new Set();
+  return new Set(
+    envEmails
+      .split(",")
+      .map((e) => e.trim().toLowerCase())
+      .filter(Boolean)
+  );
+}
 
 // In-memory cache for Google's public certificates
 let publicKeysCache: { [kid: string]: string } = {};
 let publicKeysExpiresAt = 0;
 
-async function getGooglePublicKeys(): Promise<{ [kid: string]: string }> {
+export async function getGooglePublicKeys(): Promise<{ [kid: string]: string }> {
   const now = Date.now();
   if (Object.keys(publicKeysCache).length > 0 && now < publicKeysExpiresAt) {
     return publicKeysCache;
@@ -53,6 +64,7 @@ async function getGooglePublicKeys(): Promise<{ [kid: string]: string }> {
 
 /**
  * Parses and cryptographically validates a Firebase ID token.
+ * Rejects forged algorithms, unverified signatures, and missing public keys.
  */
 export async function verifyFirebaseIdToken(token: string): Promise<AuthenticatedUser | null> {
   if (!token || typeof token !== "string") return null;
@@ -65,36 +77,70 @@ export async function verifyFirebaseIdToken(token: string): Promise<Authenticate
     const header = JSON.parse(Buffer.from(headerB64, "base64url").toString("utf8"));
     const payload = JSON.parse(Buffer.from(payloadB64, "base64url").toString("utf8"));
 
+    // 1. Strict Algorithm Check: Firebase ID tokens must always be RS256
+    if (!header || header.alg !== "RS256") {
+      return null;
+    }
+
+    // 2. Strict Key ID Check: Header must contain a valid key ID
+    if (!header.kid || typeof header.kid !== "string") {
+      return null;
+    }
+
     const nowSeconds = Math.floor(Date.now() / 1000);
 
-    // Validate claims
-    if (payload.exp && payload.exp < nowSeconds) {
+    // 3. Validate Claims & Timestamps
+    if (!payload || typeof payload !== "object") {
       return null;
     }
-    if (payload.aud !== PROJECT_ID && payload.aud !== "ht-grind") {
+
+    // Expiration check
+    if (!payload.exp || typeof payload.exp !== "number" || payload.exp < nowSeconds) {
       return null;
     }
-    if (payload.iss !== `https://securetoken.google.com/${PROJECT_ID}` && payload.iss !== "https://securetoken.google.com/ht-grind") {
+
+    // Clock-skew tolerance check for issued-at (max 5 minutes in the future)
+    if (payload.iat && typeof payload.iat === "number" && payload.iat > nowSeconds + 300) {
+      return null;
+    }
+
+    // Audience validation
+    const projectId = process.env.VITE_FIREBASE_PROJECT_ID || firebaseConfig.projectId;
+    const validAudience = [projectId, "ht-grind"].filter(Boolean);
+    if (!validAudience.includes(payload.aud)) {
+      return null;
+    }
+
+    // Issuer validation
+    const validIssuers = [
+      `https://securetoken.google.com/${projectId}`,
+      "https://securetoken.google.com/ht-grind",
+    ].filter(Boolean);
+    if (!validIssuers.includes(payload.iss)) {
+      return null;
+    }
+
+    const uid = payload.user_id || payload.sub;
+    if (!uid || typeof uid !== "string") return null;
+
+    // 4. Cryptographic Signature Verification (MANDATORY)
+    const keys = await getGooglePublicKeys();
+    const certificate = keys[header.kid];
+    if (!certificate) {
+      // Key not present or certificates could not be retrieved -> MUST reject token
+      return null;
+    }
+
+    const verifier = crypto.createVerify("RSA-SHA256");
+    verifier.update(`${headerB64}.${payloadB64}`);
+    const isValidSignature = verifier.verify(certificate, signatureB64, "base64url");
+    if (!isValidSignature) {
       return null;
     }
 
     const email = (payload.email || "").toLowerCase().trim();
-    const uid = payload.user_id || payload.sub;
-
-    if (!uid) return null;
-
-    // Verify signature if public key is available
-    const keys = await getGooglePublicKeys();
-    if (header.kid && keys[header.kid]) {
-      const verifier = crypto.createVerify("RSA-SHA256");
-      verifier.update(`${headerB64}.${payloadB64}`);
-      const valid = verifier.verify(keys[header.kid], signatureB64, "base64url");
-      if (!valid) {
-        return null;
-      }
-    }
-
-    const isAdmin = ADMIN_EMAILS.has(email);
+    const adminEmails = getAdminEmails();
+    const isAdmin = email ? adminEmails.has(email) : false;
 
     return {
       uid,

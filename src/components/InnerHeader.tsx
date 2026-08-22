@@ -34,7 +34,7 @@ export const InnerHeader: React.FC<InnerHeaderProps> = ({
         <div className="flex items-center gap-3">
           <div className="relative p-1 rounded-xl bg-slate-800/80 border border-slate-700/80 shadow-md flex items-center justify-center min-w-[40px] min-h-[40px]">
             <img
-              src="/HT%20GRIND.png"
+              src="/ht-grind.png"
               alt="HT GRIND Inner Logo"
               className="h-10 w-auto object-contain"
               referrerPolicy="no-referrer"
