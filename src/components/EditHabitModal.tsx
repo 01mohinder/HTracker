@@ -2,6 +2,7 @@ import React from 'react';
 import { Habit, Category } from '../types';
 import { CATEGORIES, DEFAULT_EMOJIS } from '../utils/storage';
 import { X, Check } from 'lucide-react';
+import { Modal } from './Modal';
 
 interface EditHabitModalProps {
   isOpen: boolean;
@@ -94,8 +95,6 @@ export const EditHabitModal: React.FC<EditHabitModalProps> = ({
     setColor(hex);
   };
 
-  if (!isOpen) return null;
-
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     if (!name.trim()) return;
@@ -110,9 +109,13 @@ export const EditHabitModal: React.FC<EditHabitModalProps> = ({
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/80 backdrop-blur-sm p-4 animate-in fade-in duration-200">
-      <div className="w-full max-w-lg rounded-3xl bg-slate-900 border border-slate-800 p-6 shadow-2xl overflow-y-auto max-h-[90vh]">
-        
+    <Modal
+      isOpen={isOpen}
+      onClose={onClose}
+      ariaLabel={editingHabit ? 'Edit Habit' : 'New Habit'}
+      maxWidth="max-w-lg"
+    >
+      <div className="p-6 overflow-y-auto max-h-[85vh] bg-slate-900 text-slate-100">
         <div className="flex items-center justify-between pb-4 border-b border-slate-800">
           <div className="flex items-center gap-2">
             <span className="p-2 rounded-xl bg-indigo-500/20 text-indigo-400 font-bold">
@@ -124,6 +127,7 @@ export const EditHabitModal: React.FC<EditHabitModalProps> = ({
           </div>
           <button
             onClick={onClose}
+            aria-label="Close dialog"
             className="p-1.5 rounded-full text-slate-400 hover:text-slate-200 hover:bg-slate-800 transition-colors"
           >
             <X className="w-5 h-5" />
@@ -283,6 +287,6 @@ export const EditHabitModal: React.FC<EditHabitModalProps> = ({
 
         </form>
       </div>
-    </div>
+    </Modal>
   );
 };

@@ -568,43 +568,49 @@ export default function App() {
     soundFx.playPop();
 
     const todayKey = formatDate(new Date());
-    const updated = habits.map((h) => {
-      if (h.id === habitId) {
-        const prevCount = h.completions[todayKey] || 0;
-        return {
-          ...h,
-          completions: {
-            ...h.completions,
-            [todayKey]: prevCount + 1,
-          },
-        };
-      }
-      return h;
-    });
+    const targetHabit = habits.find((h) => h.id === habitId);
+    const habitName = targetHabit?.name || 'Habit';
 
-    setHabits(updated);
-    modifyXp(15);
-    checkAchievements(updated);
-    saveState(updated);
-
-    const loggedHabit = habits.find((h) => h.id === habitId);
-    triggerToast(`✅ Logged ${loggedHabit?.name || 'Habit'} (+15 XP)`, () => {
-      // Undo function (Deduction system)
-      const reverted = habits.map((h) => {
+    setHabits((prevHabits) => {
+      const updated = prevHabits.map((h) => {
         if (h.id === habitId) {
-          const comps = { ...h.completions };
-          if (comps[todayKey] > 1) {
-            comps[todayKey] -= 1;
-          } else {
-            delete comps[todayKey];
-          }
-          return { ...h, completions: comps };
+          const prevCount = h.completions[todayKey] || 0;
+          return {
+            ...h,
+            completions: {
+              ...h.completions,
+              [todayKey]: prevCount + 1,
+            },
+          };
         }
         return h;
       });
-      setHabits(reverted);
-      modifyXp(-15);
-      saveState(reverted);
+
+      modifyXp(15);
+      checkAchievements(updated);
+      saveState(updated);
+      return updated;
+    });
+
+    triggerToast(`✅ Logged ${habitName} (+15 XP)`, () => {
+      // Functional undo (Deduction system)
+      setHabits((prevHabits) => {
+        const reverted = prevHabits.map((h) => {
+          if (h.id === habitId) {
+            const comps = { ...h.completions };
+            if (comps[todayKey] > 1) {
+              comps[todayKey] -= 1;
+            } else {
+              delete comps[todayKey];
+            }
+            return { ...h, completions: comps };
+          }
+          return h;
+        });
+        modifyXp(-15);
+        saveState(reverted);
+        return reverted;
+      });
       setUndoToast(null);
     });
   };
@@ -696,9 +702,15 @@ export default function App() {
     setArchivedHabits(updatedArchived);
     saveState(updatedHabits, updatedArchived);
     triggerToast(`📦 Archived "${target.name}"`, () => {
-      setHabits(habits);
-      setArchivedHabits(archivedHabits);
-      saveState(habits, archivedHabits);
+      setHabits((prevHabits) => {
+        const restored = [...prevHabits, target];
+        setArchivedHabits((prevArchived) => {
+          const filtered = prevArchived.filter((h) => h.id !== target.id);
+          saveState(restored, filtered);
+          return filtered;
+        });
+        return restored;
+      });
       setUndoToast(null);
     });
   };

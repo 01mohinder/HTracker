@@ -17,6 +17,7 @@ import {
   AlertCircle,
   Database,
 } from 'lucide-react';
+import { Modal } from './Modal';
 import { UserAccount, Habit, UserStats } from '../types';
 import {
   auth,
@@ -248,9 +249,13 @@ export const AuthModal: React.FC<AuthModalProps> = ({
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/80 backdrop-blur-md animate-in fade-in duration-200">
-      <div className="relative w-full max-w-lg overflow-hidden rounded-3xl bg-slate-900 border border-slate-800 shadow-2xl transition-all max-h-[90vh] flex flex-col">
-        
+    <Modal
+      isOpen={isOpen}
+      onClose={onClose}
+      ariaLabel={currentUser ? 'User Account & Cloud Sync' : 'Sign In / Account Portal'}
+      maxWidth="max-w-lg"
+    >
+      <div className="relative w-full overflow-hidden bg-slate-900 text-slate-100 max-h-[85vh] flex flex-col">
         {/* Header */}
         <div className="flex items-center justify-between px-6 py-4 border-b border-slate-800 bg-slate-900/80 shrink-0">
           <div className="flex items-center gap-2.5">
@@ -268,6 +273,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({
           </div>
           <button
             onClick={onClose}
+            aria-label="Close dialog"
             className="p-1.5 rounded-xl text-slate-400 hover:text-slate-100 hover:bg-slate-800 transition-colors"
           >
             <X className="w-5 h-5" />
@@ -576,6 +582,6 @@ export const AuthModal: React.FC<AuthModalProps> = ({
         </div>
 
       </div>
-    </div>
+    </Modal>
   );
 };

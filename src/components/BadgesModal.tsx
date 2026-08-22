@@ -1,7 +1,8 @@
 import React from 'react';
-import { Achievement, UserStats } from '../types';
+import { UserStats } from '../types';
 import { ALL_ACHIEVEMENTS, xpForLevel } from '../utils/storage';
-import { X, Trophy, Shield, Zap, Sparkles, Award, Lock, CheckCircle2 } from 'lucide-react';
+import { X, Trophy, Shield, Zap, Award, Lock, CheckCircle2 } from 'lucide-react';
+import { Modal } from './Modal';
 
 interface BadgesModalProps {
   isOpen: boolean;
@@ -14,16 +15,13 @@ export const BadgesModal: React.FC<BadgesModalProps> = ({
   onClose,
   stats,
 }) => {
-  if (!isOpen) return null;
-
   const unlockedIds = stats.achievements || [];
   const nextXpTarget = xpForLevel(stats.level);
   const xpPct = Math.min(Math.round((stats.xp / nextXpTarget) * 100), 100);
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/80 backdrop-blur-md p-4 animate-in fade-in duration-200">
-      <div className="w-full max-w-2xl rounded-3xl bg-slate-900 border border-slate-800 p-6 shadow-2xl overflow-y-auto max-h-[90vh] space-y-6">
-        
+    <Modal isOpen={isOpen} onClose={onClose} ariaLabel="Badges & Rewards Console" maxWidth="max-w-2xl">
+      <div className="p-6 overflow-y-auto max-h-[85vh] space-y-6 bg-slate-900 text-slate-100">
         {/* Header */}
         <div className="flex items-center justify-between pb-4 border-b border-slate-800">
           <div className="flex items-center gap-3">
@@ -41,6 +39,7 @@ export const BadgesModal: React.FC<BadgesModalProps> = ({
           </div>
           <button
             onClick={onClose}
+            aria-label="Close dialog"
             className="p-1.5 rounded-full text-slate-400 hover:text-slate-200 hover:bg-slate-800 transition-colors"
           >
             <X className="w-5 h-5" />
@@ -138,8 +137,7 @@ export const BadgesModal: React.FC<BadgesModalProps> = ({
             })}
           </div>
         </div>
-
       </div>
-    </div>
+    </Modal>
   );
 };

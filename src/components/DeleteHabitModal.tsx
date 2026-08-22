@@ -1,6 +1,7 @@
 import React from 'react';
 import { Habit } from '../types';
-import { AlertTriangle, Trash2, X, Archive, ShieldAlert } from 'lucide-react';
+import { AlertTriangle, Trash2, X, Archive } from 'lucide-react';
+import { Modal } from './Modal';
 
 interface DeleteHabitModalProps {
   isOpen: boolean;
@@ -17,14 +18,13 @@ export const DeleteHabitModal: React.FC<DeleteHabitModalProps> = ({
   onConfirmDelete,
   onArchiveInstead,
 }) => {
-  if (!isOpen || !habit) return null;
+  if (!habit) return null;
 
   const totalCompletions = Object.values(habit.completions || {}).reduce((a, b) => a + b, 0);
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/80 backdrop-blur-md p-4 animate-in fade-in duration-200">
-      <div className="w-full max-w-md rounded-3xl bg-slate-900 border border-slate-800 p-6 shadow-2xl space-y-5">
-        
+    <Modal isOpen={isOpen} onClose={onClose} ariaLabel="Delete Habit Confirmation" maxWidth="max-w-md">
+      <div className="p-6 space-y-5 bg-slate-900 text-slate-100">
         {/* Header */}
         <div className="flex items-start justify-between">
           <div className="flex items-center gap-3">
@@ -42,6 +42,7 @@ export const DeleteHabitModal: React.FC<DeleteHabitModalProps> = ({
           </div>
           <button
             onClick={onClose}
+            aria-label="Close dialog"
             className="p-1.5 rounded-full text-slate-400 hover:text-slate-200 hover:bg-slate-800 transition-colors"
           >
             <X className="w-5 h-5" />
@@ -100,8 +101,7 @@ export const DeleteHabitModal: React.FC<DeleteHabitModalProps> = ({
             <span>Delete Habit</span>
           </button>
         </div>
-
       </div>
-    </div>
+    </Modal>
   );
 };

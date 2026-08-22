@@ -20,8 +20,16 @@ export interface SystemHealthReport {
 export class TelemetryService {
   private static startTime = Date.now();
   private static executionTimers: Map<string, number> = new Map();
+  private static readonly MAX_TIMERS = 100;
 
   public static startTimer(metricName: string): void {
+    if (TelemetryService.executionTimers.size >= TelemetryService.MAX_TIMERS) {
+      // Evict oldest timer entry to prevent unbounded memory growth
+      const firstKey = TelemetryService.executionTimers.keys().next().value;
+      if (firstKey) {
+        TelemetryService.executionTimers.delete(firstKey);
+      }
+    }
     TelemetryService.executionTimers.set(metricName, performance.now());
   }
 
@@ -32,6 +40,30 @@ export class TelemetryService {
     TelemetryService.executionTimers.delete(metricName);
     Logger.debug('TelemetryService', `Execution metric '${metricName}': ${duration.toFixed(2)}ms`);
     return duration;
+  }
+
+  /**
+   * Safely measures synchronous execution duration with guaranteed cleanup in finally
+   */
+  public static measure<T>(metricName: string, fn: () => T): T {
+    TelemetryService.startTimer(metricName);
+    try {
+      return fn();
+    } finally {
+      TelemetryService.endTimer(metricName);
+    }
+  }
+
+  /**
+   * Safely measures asynchronous execution duration with guaranteed cleanup in finally
+   */
+  public static async measureAsync<T>(metricName: string, fn: () => Promise<T>): Promise<T> {
+    TelemetryService.startTimer(metricName);
+    try {
+      return await fn();
+    } finally {
+      TelemetryService.endTimer(metricName);
+    }
   }
 
   public static getSystemHealthReport(): SystemHealthReport {

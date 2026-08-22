@@ -1,5 +1,6 @@
 import React from 'react';
 import { Habit, UserStats } from '../types';
+import { Modal } from './Modal';
 import { 
   Sparkles, 
   X, 
@@ -241,9 +242,13 @@ export const AICoachModal: React.FC<AICoachModalProps> = ({
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/85 backdrop-blur-md p-2 sm:p-4 animate-in fade-in duration-200">
-      <div className="w-full max-w-3xl h-[88vh] rounded-3xl bg-slate-900 border border-slate-800 shadow-2xl flex flex-col overflow-hidden relative">
-        
+    <Modal
+      isOpen={isOpen}
+      onClose={onClose}
+      ariaLabel="HT GRIND AI Coach Pro"
+      maxWidth="max-w-3xl"
+    >
+      <div className="w-full h-[85vh] bg-slate-900 text-slate-100 flex flex-col overflow-hidden relative">
         {/* Header Bar */}
         <div className="p-4 px-6 border-b border-slate-800 bg-slate-900/90 backdrop-blur-sm shrink-0 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
           <div className="flex items-center gap-3">
@@ -306,6 +311,7 @@ export const AICoachModal: React.FC<AICoachModalProps> = ({
 
             <button
               onClick={onClose}
+              aria-label="Close dialog"
               className="p-2 rounded-full text-slate-400 hover:text-slate-200 hover:bg-slate-800 transition-colors"
             >
               <X className="w-5 h-5" />
@@ -554,7 +560,7 @@ export const AICoachModal: React.FC<AICoachModalProps> = ({
         </div>
 
       </div>
-    </div>
+    </Modal>
   );
 };
 

@@ -1,5 +1,6 @@
 import React from 'react';
 import { Habit } from '../types';
+import { Modal } from './Modal';
 import {
   calcStreak,
   calcBestStreak,
@@ -148,9 +149,13 @@ export const InsightModal: React.FC<InsightModalProps> = ({
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/80 backdrop-blur-sm p-4 animate-in fade-in duration-200">
-      <div className="w-full max-w-3xl rounded-3xl bg-slate-900 border border-slate-800 p-6 shadow-2xl overflow-y-auto max-h-[90vh]">
-        
+    <Modal
+      isOpen={isOpen}
+      onClose={onClose}
+      ariaLabel={`Analytics and Reflection for ${habit.name}`}
+      maxWidth="max-w-3xl"
+    >
+      <div className="p-6 overflow-y-auto max-h-[85vh] bg-slate-900 text-slate-100">
         {/* Header */}
         <div className="flex items-center justify-between pb-4 border-b border-slate-800">
           <div className="flex items-center gap-3">
@@ -168,6 +173,7 @@ export const InsightModal: React.FC<InsightModalProps> = ({
           </div>
           <button
             onClick={onClose}
+            aria-label="Close dialog"
             className="p-1.5 rounded-full text-slate-400 hover:text-slate-200 hover:bg-slate-800 transition-colors"
           >
             <X className="w-5 h-5" />
@@ -411,6 +417,6 @@ export const InsightModal: React.FC<InsightModalProps> = ({
         </div>
 
       </div>
-    </div>
+    </Modal>
   );
 };

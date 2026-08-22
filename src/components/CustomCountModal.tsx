@@ -1,5 +1,6 @@
 import React from 'react';
 import { X, CheckCircle2, Minus, Plus } from 'lucide-react';
+import { Modal } from './Modal';
 
 interface CustomCountModalProps {
   isOpen: boolean;
@@ -24,12 +25,9 @@ export const CustomCountModal: React.FC<CustomCountModalProps> = ({
     setCount(currentCount);
   }, [currentCount, isOpen]);
 
-  if (!isOpen) return null;
-
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/80 backdrop-blur-md p-4 animate-in fade-in duration-200">
-      <div className="w-full max-w-sm rounded-3xl bg-slate-900 border border-slate-800 p-6 shadow-2xl space-y-5">
-        
+    <Modal isOpen={isOpen} onClose={onClose} ariaLabel="Set Completion Count" maxWidth="max-w-sm">
+      <div className="p-6 space-y-5 bg-slate-900 text-slate-100">
         {/* Header */}
         <div className="flex items-center justify-between pb-3 border-b border-slate-800">
           <div>
@@ -42,6 +40,7 @@ export const CustomCountModal: React.FC<CustomCountModalProps> = ({
           </div>
           <button
             onClick={onClose}
+            aria-label="Close dialog"
             className="p-1.5 rounded-full text-slate-400 hover:text-slate-200 hover:bg-slate-800 transition-colors"
           >
             <X className="w-5 h-5" />
@@ -95,8 +94,7 @@ export const CustomCountModal: React.FC<CustomCountModalProps> = ({
           <CheckCircle2 className="w-4 h-4" />
           <span>Save Entry ({count})</span>
         </button>
-
       </div>
-    </div>
+    </Modal>
   );
 };

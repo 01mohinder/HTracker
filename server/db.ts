@@ -50,7 +50,7 @@ export async function syncUserRecord(
   deviceMeta?: { deviceId?: string; deviceType?: string; userAgent?: string; grindScore?: number; totalHabits?: number }
 ): Promise<{
   user: UserRecord;
-  storage: "CloudFirebase";
+  storage: "LocalSession";
   message: string;
 }> {
   const cleanEmail = email.toLowerCase().trim();
@@ -108,7 +108,7 @@ export async function syncUserRecord(
 
   return {
     user: userRecord,
-    storage: "CloudFirebase",
+    storage: "LocalSession",
     message: "User session telemetry updated.",
   };
 }
@@ -136,7 +136,7 @@ export async function recordAuditLog(log: Omit<SyncAuditLog, "id" | "timestamp">
 export async function listUserRecords(): Promise<{
   users: UserRecord[];
   count: number;
-  storage: "CloudFirebase";
+  storage: "LocalSession";
 }> {
   const users = Array.from(userRegistry.values());
   users.sort((a, b) => (b.returningVisitors || 0) - (a.returningVisitors || 0));
@@ -144,7 +144,7 @@ export async function listUserRecords(): Promise<{
   return {
     users,
     count: users.length,
-    storage: "CloudFirebase",
+    storage: "LocalSession",
   };
 }
 

@@ -67,10 +67,22 @@ export async function generateHabitCoachAdvice(params: CoachAdviceParams): Promi
   const { habits = [], userStats, userQuery, coachMode = "high-performance", imageBase64 } = params;
   const ai = getGenAI();
 
-  const safeHabits = (Array.isArray(habits) ? habits : []).filter(Boolean).map((h) => ({
-    ...h,
-    completions: h.completions || {},
-  }));
+  const safeHabits: HabitData[] = (Array.isArray(habits) ? habits : [])
+    .filter(Boolean)
+    .slice(0, 15)
+    .map((h, idx) => ({
+      id: String(h.id || `habit_${idx}`),
+      name: String(h.name || "Habit").slice(0, 60).replace(/[^\w\s-]/gi, ""),
+      category: String(h.category || "General").slice(0, 30),
+      goal: Math.max(1, Math.min(7, Number(h.goal) || 7)),
+      completions: typeof h.completions === "object" && h.completions !== null ? h.completions : {},
+    }));
+
+  const sanitizedQuery = (userQuery || "")
+    .slice(0, 500)
+    .replace(/===[\s\S]*?===/g, "")
+    .replace(/[^\w\s.,?!'"-]/gi, "")
+    .trim();
 
   // Run statistical analytics engine to feed the AI coach mathematical context
   const statisticalAudit = runComprehensiveStatisticalAudit(safeHabits, 30);
@@ -84,7 +96,7 @@ export async function generateHabitCoachAdvice(params: CoachAdviceParams): Promi
 
   if (!ai) {
     // Contextual high-accuracy fallback when GEMINI_API_KEY is not set
-    const lowerQuery = (userQuery || "").toLowerCase();
+    const lowerQuery = sanitizedQuery.toLowerCase();
     let customRecs = DEFAULT_RECOMMENDATIONS;
 
     if (lowerQuery.includes("morning") || lowerQuery.includes("start")) {
@@ -136,12 +148,11 @@ Mathematical Audit Findings:
 - Category Entropy Score: ${statisticalAudit.categoryEntropy.score} (Balance: ${statisticalAudit.categoryEntropy.balanceQuality})
 - Burnout Risk Assessment: ${statisticalAudit.burnoutRisk}
 - Peak Output Day: ${statisticalAudit.weeklyVelocity.peakDay} | Lowest Day: ${statisticalAudit.weeklyVelocity.lowestDay}
-- Habit Correlations Detected: ${JSON.stringify(statisticalAudit.topCorrelations)}
 
-User Habits & Completions:
-${JSON.stringify(habits.slice(0, 15), null, 2)}
+User Tracked Habits Summary:
+${JSON.stringify(safeHabits.map(h => ({ name: h.name, category: h.category, goal: h.goal })), null, 2)}
 
-User Question/Context: ${userQuery || "Give me actionable insights on how to optimize my habit system, balance my cognitive load, and maintain high momentum."}
+User Question/Context: ${sanitizedQuery || "Give me actionable insights on how to optimize my habit system, balance my cognitive load, and maintain high momentum."}
 
 Provide a structured, motivating, and mathematically grounded response in Markdown:
 1. **System Audit & Velocity Analysis**: Concise feedback on their habits, category balance, and streak momentum.
@@ -160,7 +171,7 @@ CRITICAL REQUIREMENT: At the very end of your response, output a strict JSON arr
 Ensure recommendations use standard category names (Health, Work, Mind, Fitness, Finance, Social, Learning, Creativity, Routine).`;
 
   const contents: any[] = [];
-  if (imageBase64) {
+  if (imageBase64 && typeof imageBase64 === "string" && imageBase64.length < 7 * 1024 * 1024) {
     const cleanBase64 = imageBase64.replace(/^data:image\/\w+;base64,/, "");
     contents.push({
       inlineData: {
@@ -171,12 +182,11 @@ Ensure recommendations use standard category names (Health, Work, Mind, Fitness,
   }
   contents.push(prompt);
 
-  // Priority model selection order based on capability and low-latency availability
+  // Reliable Gemini Models supported by GoogleGenAI SDK
   const modelsToTry = [
     "gemini-2.5-flash",
-    "gemini-3.7-flash",
-    "gemini-flash-latest",
-    "gemini-3.1-flash-lite",
+    "gemini-1.5-flash",
+    "gemini-2.5-pro",
   ];
   let responseText = "";
   let lastError = null;

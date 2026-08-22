@@ -1,35 +1,52 @@
-import { Router, Request, Response } from "express";
+import { Router, Response } from "express";
 import { syncUserRecord, listUserRecords, getUserProfile, recordAuditLog } from "../db";
+import { requireAuth, requireAdmin, optionalAuth, AuthenticatedRequest } from "../middleware/auth";
+import { createRateLimiter } from "../middleware/rateLimit";
 
 export const usersRouter = Router();
+
+const syncLimiter = createRateLimiter({
+  windowMs: 60 * 1000,
+  maxRequests: 30,
+  message: "Too many profile sync requests. Please try again in a moment.",
+});
 
 /**
  * POST /api/users/sync
  * Syncs user metadata (login count, date of first join, email, username, device telemetry)
+ * Validates authenticated identity if token is present to prevent IDOR.
  */
-usersRouter.post("/sync", async (req: Request, res: Response) => {
+usersRouter.post("/sync", syncLimiter, optionalAuth, async (req: AuthenticatedRequest, res: Response) => {
   try {
-    const { userName, email, deviceId, deviceType, grindScore, totalHabits } = req.body || {};
+    let { userName, email, deviceId, deviceType, grindScore, totalHabits } = req.body || {};
 
-    if (!email || typeof email !== "string" || !email.trim()) {
-      return res.status(400).json({ error: "Missing required field: valid email" });
+    // If an authenticated token was supplied, bind email to verified token email
+    if (req.user && req.user.email) {
+      email = req.user.email;
+      if (!userName && req.user.name) {
+        userName = req.user.name;
+      }
+    }
+
+    if (!email || typeof email !== "string" || !email.trim() || !email.includes("@")) {
+      return res.status(400).json({ error: "Missing or invalid required field: email" });
     }
     if (!userName || typeof userName !== "string" || !userName.trim()) {
-      return res.status(400).json({ error: "Missing required field: valid userName" });
+      return res.status(400).json({ error: "Missing or invalid required field: userName" });
     }
 
     const userAgent = req.headers["user-agent"] || "unknown";
 
-    const result = await syncUserRecord(userName, email, {
-      deviceId,
+    const result = await syncUserRecord(userName.trim().slice(0, 100), email.trim().toLowerCase().slice(0, 150), {
+      deviceId: typeof deviceId === "string" ? deviceId.slice(0, 100) : undefined,
       deviceType: deviceType || (userAgent.includes("Mobile") ? "Mobile" : "Laptop"),
-      userAgent,
-      grindScore,
-      totalHabits,
+      userAgent: typeof userAgent === "string" ? userAgent.slice(0, 200) : undefined,
+      grindScore: typeof grindScore === "number" ? Math.max(0, Math.min(100, grindScore)) : undefined,
+      totalHabits: typeof totalHabits === "number" ? Math.max(0, totalHabits) : undefined,
     });
 
     recordAuditLog({
-      email,
+      email: email.trim().toLowerCase(),
       action: "sync_state",
       deviceId: deviceId || "web",
       metadata: { grindScore, totalHabits },
@@ -51,16 +68,24 @@ usersRouter.post("/sync", async (req: Request, res: Response) => {
 
 /**
  * GET /api/users/profile/:email
- * Gets a user's engagement and telemetry summary
+ * Gets a user's engagement and telemetry summary. Protected: owner or admin only.
  */
-usersRouter.get("/profile/:email", async (req: Request, res: Response) => {
+usersRouter.get("/profile/:email", requireAuth, async (req: AuthenticatedRequest, res: Response) => {
   try {
     const { email } = req.params;
     if (!email) {
       return res.status(400).json({ error: "Email parameter is required" });
     }
 
-    const profile = await getUserProfile(email);
+    const targetEmail = email.toLowerCase().trim();
+    const callerEmail = req.user?.email?.toLowerCase().trim();
+
+    // Prevent IDOR: Caller can only fetch their own profile unless they are an admin
+    if (callerEmail !== targetEmail && !req.user?.isAdmin) {
+      return res.status(403).json({ error: "Forbidden: You may only view your own user profile." });
+    }
+
+    const profile = await getUserProfile(targetEmail);
     if (!profile) {
       return res.status(404).json({ error: "User record not found" });
     }
@@ -74,25 +99,10 @@ usersRouter.get("/profile/:email", async (req: Request, res: Response) => {
 
 /**
  * GET /api/users
- * Developer-only user auditing endpoint
+ * Protected: Admin-only registry table
  */
-usersRouter.get("/", async (req: Request, res: Response) => {
+usersRouter.get("/", requireAdmin, async (_req: AuthenticatedRequest, res: Response) => {
   try {
-    const devKey = req.headers["x-dev-key"] || req.query.devKey;
-    const userEmail = (req.headers["x-user-email"] || req.query.userEmail || "").toString().toLowerCase();
-
-    const isDeveloperEmail =
-      userEmail === "mohinderb321@gmail.com" ||
-      userEmail.includes("admin") ||
-      userEmail.includes("developer");
-    const isValidDevKey = devKey === "dev123" || devKey === "admin123" || isDeveloperEmail;
-
-    if (!isValidDevKey) {
-      return res.status(403).json({
-        error: "Access Denied: The full Database Registry Table is restricted to Developer Access only.",
-      });
-    }
-
     const result = await listUserRecords();
     return res.json(result);
   } catch (error: any) {
