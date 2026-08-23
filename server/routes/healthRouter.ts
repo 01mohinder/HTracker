@@ -1,24 +1,40 @@
-import { Router, Request, Response } from "express";
+import { Router, Response } from "express";
 import { getFirestoreDb } from "../db";
+import { optionalAuth, AuthenticatedRequest } from "../middleware/auth";
 
 export const healthRouter = Router();
 
 /**
  * GET /api/health
- * High-accuracy system diagnostics, latency, and service health metrics
+ * Public health check returns minimal status.
+ * Detailed process metrics and environment diagnostics are restricted to authenticated admins.
  */
-healthRouter.get("/", async (_req: Request, res: Response) => {
+healthRouter.get("/", optionalAuth, async (req: AuthenticatedRequest, res: Response) => {
+  const adminSecret = process.env.ADMIN_SECRET_KEY;
+  const providedSecret = req.headers["x-admin-key"] || req.headers["x-dev-key"];
+  const isSecretAdmin = Boolean(adminSecret && providedSecret && adminSecret === providedSecret);
+  const isAdmin = Boolean(req.user?.isAdmin || isSecretAdmin);
+
+  // Minimal public health check
+  if (!isAdmin) {
+    return res.json({
+      status: "ok",
+      service: "HT GRIND",
+      timestamp: new Date().toISOString(),
+    });
+  }
+
+  // Admin-only detailed diagnostics
   const startTime = Date.now();
   const db = await getFirestoreDb();
   const dbLatencyMs = Date.now() - startTime;
   const uptimeSeconds = process.uptime();
   const memory = process.memoryUsage();
-
   const apiKeyConfigured = Boolean(process.env.GEMINI_API_KEY);
 
   return res.json({
     status: "ok",
-    service: "HT GRIND High-Accuracy Backend Engine",
+    service: "HT GRIND Backend Engine",
     timestamp: new Date().toISOString(),
     uptime: `${Math.floor(uptimeSeconds)}s`,
     process: {
@@ -31,25 +47,15 @@ healthRouter.get("/", async (_req: Request, res: Response) => {
       },
     },
     database: {
-      provider: db ? "Cloud Firebase Firestore" : "Firestore In-Memory Fallback",
-      status: "connected",
+      provider: db ? "Cloud Firebase Firestore" : "Local Telemetry Fallback",
+      status: db ? "connected" : "in-memory-transient",
       latencyMs: dbLatencyMs,
     },
     aiEngine: {
       provider: "Google Gemini",
-      activeModel: "gemini-2.5-flash",
       status: apiKeyConfigured ? "ready" : "fallback-enabled",
       multimodalVision: true,
       naturalLanguageParser: true,
-    },
-    analyticsEngine: {
-      precision: "high-accuracy-float64",
-      models: [
-        "Exponential-Decay Grind Score",
-        "Shannon Category Balance Entropy",
-        "Pearson Habit Synergy Correlation",
-        "Markov Continuity Forecast",
-      ],
     },
   });
 });

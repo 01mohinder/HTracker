@@ -1,11 +1,12 @@
 import { getDeviceId } from './syncService';
+import { auth } from './firebase';
 
 export interface SyncedUserData {
   returningVisitors: number;
   dateOfFirstJoin: string;
   userName: string;
   email: string;
-  storage: 'CloudFirebase';
+  storage: 'CloudFirebase' | 'LocalSession';
   message: string;
 }
 
@@ -19,11 +20,22 @@ export const syncUserRecordToCloud = async (
       navigator.userAgent
     );
 
+    const headers: Record<string, string> = {
+      'Content-Type': 'application/json',
+    };
+
+    if (auth.currentUser) {
+      try {
+        const idToken = await auth.currentUser.getIdToken();
+        if (idToken) {
+          headers['Authorization'] = `Bearer ${idToken}`;
+        }
+      } catch {}
+    }
+
     const res = await fetch('/api/users/sync', {
       method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-      },
+      headers,
       body: JSON.stringify({
         userName,
         email,

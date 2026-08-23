@@ -5,6 +5,7 @@ import firebaseConfig from "../../firebase-applet-config.json";
 export interface AuthenticatedUser {
   uid: string;
   email: string;
+  emailVerified: boolean;
   name?: string;
   isAdmin: boolean;
 }
@@ -139,17 +140,38 @@ export async function verifyFirebaseIdToken(token: string): Promise<Authenticate
     }
 
     const email = (payload.email || "").toLowerCase().trim();
+    const emailVerified = payload.email_verified === true;
     const adminEmails = getAdminEmails();
-    const isAdmin = email ? adminEmails.has(email) : false;
+    // Strictly require verified email address to prevent unverified admin account impersonation
+    const isAdmin = Boolean(emailVerified && email && adminEmails.has(email));
 
     return {
       uid,
       email,
+      emailVerified,
       name: payload.name,
       isAdmin,
     };
   } catch (err) {
     return null;
+  }
+}
+
+/**
+ * Constant-time string comparison to mitigate timing attacks
+ */
+function constantTimeEquals(a: string, b: string): boolean {
+  try {
+    const bufA = Buffer.from(a, "utf8");
+    const bufB = Buffer.from(b, "utf8");
+    if (bufA.length !== bufB.length) {
+      // Perform dummy equal check to prevent length-timing leaks
+      crypto.timingSafeEqual(bufA, bufA);
+      return false;
+    }
+    return crypto.timingSafeEqual(bufA, bufB);
+  } catch {
+    return false;
   }
 }
 
@@ -194,7 +216,12 @@ export async function requireAdmin(req: AuthenticatedRequest, res: Response, nex
   // Check for admin API secret header (if configured in environment)
   const adminSecret = process.env.ADMIN_SECRET_KEY;
   const providedSecret = req.headers["x-admin-key"] || req.headers["x-dev-key"];
-  if (adminSecret && providedSecret && adminSecret === providedSecret) {
+  if (
+    adminSecret &&
+    typeof adminSecret === "string" &&
+    typeof providedSecret === "string" &&
+    constantTimeEquals(adminSecret, providedSecret)
+  ) {
     return next();
   }
 

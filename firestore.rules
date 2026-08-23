@@ -16,8 +16,15 @@ service cloud.firestore {
     }
     
     // User habit data: Only the authenticated user can read/write their own habits/routines
+    // Supports verified email migration from legacy email-keyed records
     match /user_data/{userId} {
-      allow read, write: if isOwner(userId);
+      allow read: if isOwner(userId) || (
+        isAuthenticated() &&
+        resource.data.userEmail != null &&
+        resource.data.userEmail == request.auth.token.email &&
+        request.auth.token.email_verified == true
+      );
+      allow write: if isOwner(userId);
     }
     
     // Audit logs: Authenticated users can write their own log entries and read their own
@@ -25,7 +32,7 @@ service cloud.firestore {
       allow create: if isAuthenticated() && request.resource.data.userId == request.auth.uid;
       allow read: if isAuthenticated() && (
         resource.data.userId == request.auth.uid ||
-        (request.auth.token.email != null && resource.data.email == request.auth.token.email)
+        (request.auth.token.email_verified == true && request.auth.token.email != null && resource.data.email == request.auth.token.email)
       );
       allow update, delete: if false;
     }

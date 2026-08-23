@@ -4,8 +4,63 @@
   functions = "netlify/functions"
 
 [[redirects]]
+  from = "/api/health"
+  to = "/.netlify/functions/health"
+  status = 200
+
+[[redirects]]
+  from = "/api/users/sync"
+  to = "/.netlify/functions/users-sync"
+  status = 200
+
+[[redirects]]
+  from = "/api/users/profile"
+  to = "/.netlify/functions/users-profile"
+  status = 200
+
+[[redirects]]
+  from = "/api/users"
+  to = "/.netlify/functions/users-list"
+  status = 200
+
+[[redirects]]
   from = "/api/ai/habit-coach"
   to = "/.netlify/functions/habit-coach"
+  status = 200
+
+[[redirects]]
+  from = "/api/ai/generate-routine"
+  to = "/.netlify/functions/generate-routine"
+  status = 200
+
+[[redirects]]
+  from = "/api/ai/vision-audit"
+  to = "/.netlify/functions/vision-audit"
+  status = 200
+
+[[redirects]]
+  from = "/api/ai/parse-habit"
+  to = "/.netlify/functions/parse-habit"
+  status = 200
+
+[[redirects]]
+  from = "/api/habits/parse-natural"
+  to = "/.netlify/functions/parse-natural"
+  status = 200
+
+[[redirects]]
+  from = "/api/analytics/audit"
+  to = "/.netlify/functions/analytics-audit"
+  status = 200
+
+[[redirects]]
+  from = "/api/analytics/correlations"
+  to = "/.netlify/functions/analytics-correlations"
+  status = 200
+
+[[redirects]]
+  from = "/api/analytics/predict"
+  to = "/.netlify/functions/analytics-predict"
   status = 200
 
 [[redirects]]

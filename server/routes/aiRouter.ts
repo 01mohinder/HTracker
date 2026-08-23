@@ -55,7 +55,8 @@ aiRouter.post(
         }
       }
 
-      const userEmail = req.user?.email || req.body?.userEmail;
+      // Bind userEmail strictly to verified authenticated token to prevent audit log forgery
+      const userEmail = req.user?.email;
 
       const result = await generateHabitCoachAdvice({
         habits,
@@ -78,8 +79,7 @@ aiRouter.post(
     } catch (error: any) {
       console.error("[AIRouter] Habit Coach Error:", error);
       return res.status(500).json({
-        error: "Failed to generate AI habit coaching",
-        details: error?.message || "Internal server error",
+        error: "Failed to generate AI habit coaching. Please try again later.",
       });
     }
   }
@@ -110,7 +110,7 @@ aiRouter.post(
 
       const routine = await generateRoutineFlow(goal.trim().slice(0, 500), safeTimeOfDay);
 
-      const userEmail = req.user?.email || req.body?.userEmail;
+      const userEmail = req.user?.email;
       if (userEmail) {
         recordAuditLog({
           email: userEmail,
@@ -124,8 +124,7 @@ aiRouter.post(
     } catch (error: any) {
       console.error("[AIRouter] Routine Generation Error:", error);
       return res.status(500).json({
-        error: "Failed to generate routine flow",
-        details: error?.message || "Internal server error",
+        error: "Failed to generate routine flow. Please try again later.",
       });
     }
   }
@@ -157,8 +156,7 @@ aiRouter.post(
     } catch (error: any) {
       console.error("[AIRouter] Vision Audit Error:", error);
       return res.status(500).json({
-        error: "Failed to perform visual audit",
-        details: error?.message || "Internal server error",
+        error: "Failed to perform visual audit. Please try again later.",
       });
     }
   }
@@ -188,8 +186,7 @@ aiRouter.post(
     } catch (error: any) {
       console.error("[AIRouter] Parse Habit Error:", error);
       return res.status(500).json({
-        error: "Failed to parse habit text",
-        details: error?.message,
+        error: "Failed to parse habit text. Please try again later.",
       });
     }
   }
