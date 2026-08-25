@@ -158,8 +158,11 @@ export default function App() {
     if (rawActive) {
       try {
         const parsed = JSON.parse(rawActive);
-        if (parsed.currentUser && parsed.currentUser.provider !== 'guest') {
-          setCurrentUser(parsed.currentUser);
+        if (parsed.currentUser && parsed.currentUser.provider !== 'guest' && parsed.currentUser.provider !== 'local') {
+          // Keep currentUser in local state only if guest/local, or wait for onAuthStateChanged for cloud accounts
+          if (parsed.currentUser.provider === 'guest' || parsed.currentUser.provider === 'local') {
+            setCurrentUser(parsed.currentUser);
+          }
         }
         if (Array.isArray(parsed.habits) && parsed.habits.length > 0) {
           setHabits(parsed.habits);
@@ -354,8 +357,15 @@ export default function App() {
         console.warn('LocalStorage save notice:', err);
       }
 
-      // If in Guest Mode, ensure status is local and bypass cloud writes
-      if (!currentUser || currentUser.provider === 'guest' || currentUser.provider === 'local' || !currentUser.email) {
+      // If in Guest Mode or if Firebase Auth is not actively signed in, keep state local and bypass cloud writes
+      if (
+        !currentUser ||
+        currentUser.provider === 'guest' ||
+        currentUser.provider === 'local' ||
+        !currentUser.email ||
+        !auth.currentUser ||
+        auth.currentUser.uid !== currentUser.id
+      ) {
         setSyncStatus('local');
         return;
       }
