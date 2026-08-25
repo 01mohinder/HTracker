@@ -1,5 +1,6 @@
 import { Router, Response } from "express";
-import { syncUserRecord, listUserRecords, getUserProfile, recordAuditLog } from "../db";
+import { syncUserToMongo, getMongoUserByEmail, listMongoUsers } from "../mongodb";
+import { syncUserRecord, recordAuditLog } from "../db";
 import { requireAuth, requireAdmin, optionalAuth, AuthenticatedRequest } from "../middleware/auth";
 import { createRateLimiter } from "../middleware/rateLimit";
 
@@ -11,78 +12,59 @@ const syncLimiter = createRateLimiter({
   message: "Too many profile sync requests. Please try again in a moment.",
 });
 
-const VALID_DEVICE_TYPES = new Set(["Laptop", "Mobile", "Tablet", "Unknown"]);
-
 /**
  * POST /api/users/sync
- * Syncs user metadata (login count, date of first join, email, username, device telemetry)
- * Validates authenticated identity to prevent IDOR and account takeover.
+ * Syncs user data directly to MongoDB (storing strictly: uniqueId, dateOfFirstJoin, email, userName, returningVisitors, lastActivedate)
  */
 usersRouter.post("/sync", syncLimiter, optionalAuth, async (req: AuthenticatedRequest, res: Response) => {
   try {
-    let { userName, email, deviceId, deviceType, grindScore, totalHabits } = req.body || {};
+    let { userName, email, uniqueId, id } = req.body || {};
 
-    // Prevent IDOR / Identity Spoofing:
-    // If authenticated, email is strictly bound to req.user.email
+    // If authenticated via Firebase token, email & uid are securely bound
     if (req.user && req.user.email) {
       email = req.user.email;
       if (!userName && req.user.name) {
         userName = req.user.name;
       }
-    } else {
-      // For unauthenticated callers, require a guest identifier or require auth to prevent claiming registered accounts
-      const targetEmail = typeof email === "string" ? email.trim().toLowerCase() : "";
-      if (!targetEmail) {
-        return res.status(400).json({ error: "Missing or invalid required field: email" });
-      }
-      const existing = await getUserProfile(targetEmail);
-      if (existing) {
-        // Prevent unauthenticated callers from overwriting or modifying an existing registered account
-        return res.status(401).json({ error: "Authentication required to update existing user profile." });
+      if (!uniqueId && req.user.uid) {
+        uniqueId = req.user.uid;
       }
     }
 
-    if (!email || typeof email !== "string" || !email.trim() || !email.includes("@")) {
+    const cleanEmail = typeof email === "string" ? email.trim().toLowerCase() : "";
+    if (!cleanEmail || !cleanEmail.includes("@")) {
       return res.status(400).json({ error: "Missing or invalid required field: email" });
     }
-    if (!userName || typeof userName !== "string" || !userName.trim()) {
-      return res.status(400).json({ error: "Missing or invalid required field: userName" });
-    }
 
-    const userAgent = String(req.headers["user-agent"] || "unknown");
-    const safeDeviceType = typeof deviceType === "string" && VALID_DEVICE_TYPES.has(deviceType)
-      ? (deviceType as "Laptop" | "Mobile" | "Tablet" | "Unknown")
-      : userAgent.includes("Mobile") ? "Mobile" : "Laptop";
+    const cleanName = typeof userName === "string" && userName.trim() ? userName.trim() : "Champion";
+    const targetUniqueId = (uniqueId || id || req.user?.uid || "").trim();
 
-    const cleanGrindScore = typeof grindScore === "number" && Number.isFinite(grindScore)
-      ? Math.max(0, Math.min(100, Math.round(grindScore)))
-      : undefined;
-
-    const cleanTotalHabits = typeof totalHabits === "number" && Number.isFinite(totalHabits)
-      ? Math.max(0, Math.min(500, Math.round(totalHabits)))
-      : undefined;
-
-    const cleanDeviceId = typeof deviceId === "string" ? deviceId.slice(0, 100).replace(/[^\w-]/g, "") : undefined;
-
-    const result = await syncUserRecord(userName.trim().slice(0, 100), email.trim().toLowerCase().slice(0, 150), {
-      deviceId: cleanDeviceId,
-      deviceType: safeDeviceType,
-      userAgent: userAgent.slice(0, 200),
-      grindScore: cleanGrindScore,
-      totalHabits: cleanTotalHabits,
+    // Synchronize directly with MongoDB
+    const mongoResult = await syncUserToMongo({
+      uniqueId: targetUniqueId,
+      email: cleanEmail,
+      userName: cleanName,
     });
 
+    // Also update server cache & audit logs
+    syncUserRecord(cleanName, cleanEmail).catch(() => {});
     recordAuditLog({
-      email: email.trim().toLowerCase(),
+      email: cleanEmail,
       action: "sync_state",
-      deviceId: cleanDeviceId || "web",
-      metadata: { grindScore: cleanGrindScore, totalHabits: cleanTotalHabits },
+      deviceId: targetUniqueId || "web",
+      metadata: { returningVisitors: mongoResult.user.returningVisitors },
     }).catch(() => {});
 
+    // Return the clean user data
     return res.json({
-      ...result.user,
-      storage: result.storage,
-      message: result.message,
+      uniqueId: mongoResult.user.uniqueId,
+      dateOfFirstJoin: mongoResult.user.dateOfFirstJoin,
+      email: mongoResult.user.email,
+      userName: mongoResult.user.userName,
+      returningVisitors: mongoResult.user.returningVisitors,
+      lastActivedate: mongoResult.user.lastActivedate,
+      storage: mongoResult.storage,
+      message: "User record successfully synchronized to MongoDB",
     });
   } catch (error: any) {
     console.error("[UsersRouter] Sync Error:", error);
@@ -94,7 +76,7 @@ usersRouter.post("/sync", syncLimiter, optionalAuth, async (req: AuthenticatedRe
 
 /**
  * GET /api/users/profile/:email
- * Gets a user's engagement and telemetry summary. Protected: owner or admin only.
+ * Gets a user's MongoDB record. Protected: owner or admin only.
  */
 usersRouter.get("/profile/:email", requireAuth, async (req: AuthenticatedRequest, res: Response) => {
   try {
@@ -111,7 +93,7 @@ usersRouter.get("/profile/:email", requireAuth, async (req: AuthenticatedRequest
       return res.status(403).json({ error: "Forbidden: You may only view your own user profile." });
     }
 
-    const profile = await getUserProfile(targetEmail);
+    const profile = await getMongoUserByEmail(targetEmail);
     if (!profile) {
       return res.status(404).json({ error: "User record not found" });
     }
@@ -125,12 +107,16 @@ usersRouter.get("/profile/:email", requireAuth, async (req: AuthenticatedRequest
 
 /**
  * GET /api/users
- * Protected: Admin-only registry table
+ * Protected: Admin-only registry table fetched from MongoDB
  */
 usersRouter.get("/", requireAdmin, async (_req: AuthenticatedRequest, res: Response) => {
   try {
-    const result = await listUserRecords();
-    return res.json(result);
+    const users = await listMongoUsers();
+    return res.json({
+      users,
+      count: users.length,
+      storage: "MongoDB",
+    });
   } catch (error: any) {
     console.error("[UsersRouter] List Error:", error);
     return res.status(500).json({

@@ -291,10 +291,10 @@ export default function App() {
     };
   }, [currentUser?.id]);
 
-  // Sync user revisit count with telemetry API
+  // Sync user revisit count with MongoDB
   React.useEffect(() => {
     if (currentUser?.email && currentUser?.name) {
-      syncUserRecordToMongoDB(currentUser.name, currentUser.email)
+      syncUserRecordToMongoDB(currentUser.name, currentUser.email, currentUser.id)
         .then((synced) => {
           if (synced && typeof synced.returningVisitors === 'number') {
             setCurrentUser((prev) =>
@@ -302,9 +302,9 @@ export default function App() {
             );
           }
         })
-        .catch((err) => console.warn('Telemetry revisit sync error:', err));
+        .catch((err) => console.warn('MongoDB revisit sync notice:', err));
     }
-  }, [currentUser?.email]);
+  }, [currentUser?.email, currentUser?.id]);
 
   // Master Atomic Cloud Firebase State Committer
   const commitCloudState = React.useCallback(

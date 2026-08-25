@@ -2,24 +2,22 @@ import { getDeviceId } from './syncService';
 import { auth } from './firebase';
 
 export interface SyncedUserData {
-  returningVisitors: number;
+  uniqueId: string;
   dateOfFirstJoin: string;
-  userName: string;
   email: string;
-  storage: 'CloudFirebase' | 'LocalSession';
-  message: string;
+  userName: string;
+  returningVisitors: number;
+  lastActivedate: string;
+  storage?: string;
+  message?: string;
 }
 
-export const syncUserRecordToCloud = async (
+export const syncUserRecordToMongoDB = async (
   userName: string,
   email: string,
-  extra?: { grindScore?: number; totalHabits?: number }
+  uniqueId?: string
 ): Promise<SyncedUserData | null> => {
   try {
-    const isMobile = /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(
-      navigator.userAgent
-    );
-
     const headers: Record<string, string> = {
       'Content-Type': 'application/json',
     };
@@ -33,16 +31,15 @@ export const syncUserRecordToCloud = async (
       } catch {}
     }
 
+    const targetUniqueId = uniqueId || auth.currentUser?.uid || getDeviceId();
+
     const res = await fetch('/api/users/sync', {
       method: 'POST',
       headers,
       body: JSON.stringify({
+        uniqueId: targetUniqueId,
         userName,
         email,
-        deviceId: getDeviceId(),
-        deviceType: isMobile ? 'Mobile' : 'Laptop',
-        grindScore: extra?.grindScore,
-        totalHabits: extra?.totalHabits,
       }),
     });
 
@@ -53,11 +50,12 @@ export const syncUserRecordToCloud = async (
     const data: SyncedUserData = await res.json();
     return data;
   } catch (err) {
-    console.warn('[UserSync] Server telemetry note:', err);
+    console.warn('[MongoDB UserSync] Notice:', err);
     return null;
   }
 };
 
-// Backwards compatibility alias
-export const syncUserRecordToMongoDB = syncUserRecordToCloud;
+// Cloud alias
+export const syncUserRecordToCloud = syncUserRecordToMongoDB;
+
 
