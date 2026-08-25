@@ -28,6 +28,11 @@ const aiVisionLimiter = createRateLimiter({
 // Maximum allowed base64 size: ~4 MB raw image data (~5.5 MB base64 string)
 const MAX_IMAGE_BASE64_LENGTH = 5.5 * 1024 * 1024;
 
+function sanitizeDeviceId(id: any): string {
+  if (typeof id !== "string") return "web";
+  return id.replace(/[^a-zA-Z0-9_\-.:]/g, "").slice(0, 64) || "web";
+}
+
 /**
  * POST /api/ai/habit-coach
  * Analyzes active habit stack & stats and generates personalized coach insights
@@ -70,7 +75,7 @@ aiRouter.post(
         recordAuditLog({
           email: userEmail,
           action: "audit",
-          deviceId: deviceId || "web",
+          deviceId: sanitizeDeviceId(deviceId),
           metadata: { coachMode, hasImage: !!imageBase64 },
         }).catch(() => {});
       }
@@ -115,7 +120,7 @@ aiRouter.post(
         recordAuditLog({
           email: userEmail,
           action: "routine_gen",
-          deviceId: deviceId || "web",
+          deviceId: sanitizeDeviceId(deviceId),
           metadata: { goal: goal.slice(0, 100), timeOfDay: safeTimeOfDay },
         }).catch(() => {});
       }

@@ -51,8 +51,16 @@ export function createRateLimiter(options: {
 
     if (!record || now > record.resetAt) {
       trackingMap.set(clientKey, { count: 1, resetAt: now + windowMs });
+      res.setHeader("RateLimit-Limit", maxRequests.toString());
+      res.setHeader("RateLimit-Remaining", (maxRequests - 1).toString());
+      res.setHeader("RateLimit-Reset", Math.ceil((now + windowMs) / 1000).toString());
       return next();
     }
+
+    const remaining = Math.max(0, maxRequests - record.count);
+    res.setHeader("RateLimit-Limit", maxRequests.toString());
+    res.setHeader("RateLimit-Remaining", remaining.toString());
+    res.setHeader("RateLimit-Reset", Math.ceil(record.resetAt / 1000).toString());
 
     if (record.count >= maxRequests) {
       const retryAfter = Math.ceil((record.resetAt - now) / 1000);

@@ -300,22 +300,22 @@ export function runComprehensiveStatisticalAudit(
 
   if (safeHabits.length === 0) {
     return {
-      grindScore: 100,
-      rawScore: 100,
-      momentumScore: 100,
-      consistencyIndex: 100,
+      grindScore: 0,
+      rawScore: 0,
+      momentumScore: 0,
+      consistencyIndex: 0,
       trend: 'stable',
       burnoutRisk: 'low',
       categoryEntropy: {
-        score: 1,
-        dominantCategory: 'General',
-        balanceQuality: 'optimal',
+        score: 0,
+        dominantCategory: 'None',
+        balanceQuality: 'unbalanced',
         distribution: {},
       },
       weeklyVelocity: {
         averagePerDay: 0,
-        peakDay: 'Monday',
-        lowestDay: 'Sunday',
+        peakDay: 'None',
+        lowestDay: 'None',
         weekdayDistribution: [],
       },
       topCorrelations: [],

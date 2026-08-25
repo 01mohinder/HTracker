@@ -515,7 +515,7 @@ Return JSON:
   "coachFeedback": "A 1-2 sentence supportive verification comment"
 }`;
 
-    const models = ["gemini-2.5-flash", "gemini-3.7-flash", "gemini-flash-latest"];
+    const models = ["gemini-2.5-flash", "gemini-1.5-flash", "gemini-2.5-pro"];
     for (const modelName of models) {
       try {
         const res = await ai.models.generateContent({

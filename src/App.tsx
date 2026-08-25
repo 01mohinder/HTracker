@@ -127,6 +127,22 @@ export default function App() {
   const dragIndexRef = React.useRef<number | null>(null);
   const debounceTimerRef = React.useRef<NodeJS.Timeout | null>(null);
 
+  const habitsRef = React.useRef(habits);
+  const statsRef = React.useRef(stats);
+  const archivedHabitsRef = React.useRef(archivedHabits);
+
+  React.useEffect(() => {
+    habitsRef.current = habits;
+  }, [habits]);
+
+  React.useEffect(() => {
+    statsRef.current = stats;
+  }, [stats]);
+
+  React.useEffect(() => {
+    archivedHabitsRef.current = archivedHabits;
+  }, [archivedHabits]);
+
   // Real-Time Firebase Auth Lifecycle
   React.useEffect(() => {
     const unsubscribeAuth = onAuthStateChanged(auth, async (fbUser) => {
@@ -200,7 +216,7 @@ export default function App() {
       },
       (err) => {
         console.warn('Live subscription notice:', err);
-        setSyncStatus('live');
+        setSyncStatus('offline');
       }
     );
 
@@ -477,66 +493,85 @@ export default function App() {
   };
 
   // Add / Deduct XP and check Level Up / Down with Streak Freeze rewards
-  const modifyXp = (amount: number) => {
-    let currentXp = stats.xp + amount;
-    let currentLevel = stats.level;
-    let streakFreezes = stats.streakFreezes || 0;
-    let totalCompletions = stats.totalCompletions || 0;
+  const modifyXp = (amount: number, customHabits?: Habit[]) => {
+    let leveledUp = false;
+    let freezeConsumed = false;
+    let newLevel = 1;
+    let remainingFreezes = 0;
+    let resultingStats: UserStats | null = null;
 
-    if (amount > 0) {
-      totalCompletions += 1;
-      let leveledUp = false;
-      while (currentXp >= xpForLevel(currentLevel)) {
-        currentXp -= xpForLevel(currentLevel);
-        currentLevel++;
-        streakFreezes += 1; // Award +1 Streak Freeze 🧊 on Level Up
-        leveledUp = true;
-      }
+    setStats((prev) => {
+      let currentXp = prev.xp + amount;
+      let currentLevel = prev.level;
+      let streakFreezes = prev.streakFreezes || 0;
+      let totalCompletions = prev.totalCompletions || 0;
 
-      if (leveledUp) {
-        soundFx.playLevelUp();
-        confetti({
-          particleCount: 120,
-          spread: 80,
-          origin: { y: 0.6 },
-        });
-        triggerToast(`🎉 LEVEL UP! You reached Level ${currentLevel} (+1 Streak Freeze 🧊)!`);
-      }
-    } else if (amount < 0) {
-      if (streakFreezes > 0) {
-        // STREAK FREEZE SHIELD ACTIVE! Absorbs deduction
-        streakFreezes -= 1;
-        currentXp = stats.xp; // Keep current XP intact!
-        soundFx.playPop();
-        triggerToast(`🛡️ STREAK FREEZE CONSUMED! Protected Level & XP from deduction (${streakFreezes} remaining).`);
-      } else {
-        totalCompletions = Math.max(0, totalCompletions - 1);
-        while (currentXp < 0 && currentLevel > 1) {
-          currentLevel--;
-          currentXp += xpForLevel(currentLevel);
+      if (amount > 0) {
+        totalCompletions += 1;
+        while (currentXp >= xpForLevel(currentLevel)) {
+          currentXp -= xpForLevel(currentLevel);
+          currentLevel++;
+          streakFreezes += 1; // Award +1 Streak Freeze 🧊 on Level Up
+          leveledUp = true;
         }
-        if (currentXp < 0) currentXp = 0;
-        triggerToast(`⚠️ Deducted ${Math.abs(amount)} XP. Earn +1 Freeze 🧊 on Level Up!`);
+      } else if (amount < 0) {
+        if (streakFreezes > 0) {
+          // STREAK FREEZE SHIELD ACTIVE! Absorbs deduction
+          streakFreezes -= 1;
+          currentXp = prev.xp; // Keep current XP intact!
+          freezeConsumed = true;
+        } else {
+          totalCompletions = Math.max(0, totalCompletions - 1);
+          while (currentXp < 0 && currentLevel > 1) {
+            currentLevel--;
+            currentXp += xpForLevel(currentLevel);
+          }
+          if (currentXp < 0) currentXp = 0;
+        }
       }
+
+      newLevel = currentLevel;
+      remainingFreezes = streakFreezes;
+
+      const nextStats: UserStats = {
+        ...prev,
+        xp: currentXp,
+        level: currentLevel,
+        totalCompletions,
+        streakFreezes,
+      };
+
+      resultingStats = nextStats;
+      return nextStats;
+    });
+
+    if (leveledUp) {
+      soundFx.playLevelUp();
+      confetti({
+        particleCount: 120,
+        spread: 80,
+        origin: { y: 0.6 },
+      });
+      triggerToast(`🎉 LEVEL UP! You reached Level ${newLevel} (+1 Streak Freeze 🧊)!`);
+    } else if (freezeConsumed) {
+      soundFx.playPop();
+      triggerToast(`🛡️ STREAK FREEZE CONSUMED! Protected Level & XP from deduction (${remainingFreezes} remaining).`);
+    } else if (amount < 0) {
+      triggerToast(`⚠️ Deducted ${Math.abs(amount)} XP. Earn +1 Freeze 🧊 on Level Up!`);
     }
 
-    const nextStats: UserStats = {
-      ...stats,
-      xp: currentXp,
-      level: currentLevel,
-      totalCompletions,
-      streakFreezes,
-    };
-
-    setStats(nextStats);
-    saveState(habits, archivedHabits, nextStats);
+    if (resultingStats) {
+      const activeHabits = customHabits || habitsRef.current;
+      saveState(activeHabits, archivedHabitsRef.current, resultingStats);
+    }
   };
 
   const addXp = (amount: number) => modifyXp(amount);
 
   // Check achievements
   const checkAchievements = (currentHabits: Habit[]) => {
-    const unlocked = [...stats.achievements];
+    const currentStats = statsRef.current;
+    const unlocked = [...currentStats.achievements];
     let newUnlockedCount = 0;
 
     ALL_ACHIEVEMENTS.forEach((a) => {
@@ -557,9 +592,11 @@ export default function App() {
     });
 
     if (newUnlockedCount > 0) {
-      const nextStats = { ...stats, achievements: unlocked };
-      setStats(nextStats);
-      saveState(currentHabits, archivedHabits, nextStats);
+      setStats((prev) => {
+        const nextStats = { ...prev, achievements: unlocked };
+        saveState(currentHabits, archivedHabitsRef.current, nextStats);
+        return nextStats;
+      });
     }
   };
 
@@ -568,49 +605,45 @@ export default function App() {
     soundFx.playPop();
 
     const todayKey = formatDate(new Date());
-    const targetHabit = habits.find((h) => h.id === habitId);
+    const currentHabits = habitsRef.current;
+    const targetHabit = currentHabits.find((h) => h.id === habitId);
     const habitName = targetHabit?.name || 'Habit';
 
-    setHabits((prevHabits) => {
-      const updated = prevHabits.map((h) => {
-        if (h.id === habitId) {
-          const prevCount = h.completions[todayKey] || 0;
-          return {
-            ...h,
-            completions: {
-              ...h.completions,
-              [todayKey]: prevCount + 1,
-            },
-          };
-        }
-        return h;
-      });
-
-      modifyXp(15);
-      checkAchievements(updated);
-      saveState(updated);
-      return updated;
+    const updated = currentHabits.map((h) => {
+      if (h.id === habitId) {
+        const prevCount = h.completions[todayKey] || 0;
+        return {
+          ...h,
+          completions: {
+            ...h.completions,
+            [todayKey]: prevCount + 1,
+          },
+        };
+      }
+      return h;
     });
+
+    setHabits(updated);
+    modifyXp(15, updated);
+    checkAchievements(updated);
 
     triggerToast(`✅ Logged ${habitName} (+15 XP)`, () => {
       // Functional undo (Deduction system)
-      setHabits((prevHabits) => {
-        const reverted = prevHabits.map((h) => {
-          if (h.id === habitId) {
-            const comps = { ...h.completions };
-            if (comps[todayKey] > 1) {
-              comps[todayKey] -= 1;
-            } else {
-              delete comps[todayKey];
-            }
-            return { ...h, completions: comps };
+      const latestHabits = habitsRef.current;
+      const reverted = latestHabits.map((h) => {
+        if (h.id === habitId) {
+          const comps = { ...h.completions };
+          if (comps[todayKey] > 1) {
+            comps[todayKey] -= 1;
+          } else {
+            delete comps[todayKey];
           }
-          return h;
-        });
-        modifyXp(-15);
-        saveState(reverted);
-        return reverted;
+          return { ...h, completions: comps };
+        }
+        return h;
       });
+      setHabits(reverted);
+      modifyXp(-15, reverted);
       setUndoToast(null);
     });
   };

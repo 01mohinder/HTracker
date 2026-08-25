@@ -1,8 +1,22 @@
+import crypto from 'crypto';
 import { listUserRecords } from '../../server/db';
 
 interface NetlifyEvent {
   httpMethod: string;
   headers: Record<string, string | undefined>;
+}
+
+function timingSafeSecretCompare(provided?: string | string[], actual?: string): boolean {
+  if (!provided || !actual) return false;
+  const providedStr = Array.isArray(provided) ? provided[0] : provided;
+  const bufProvided = Buffer.from(providedStr);
+  const bufActual = Buffer.from(actual);
+
+  if (bufProvided.length !== bufActual.length) {
+    crypto.timingSafeEqual(bufProvided, bufProvided);
+    return false;
+  }
+  return crypto.timingSafeEqual(bufProvided, bufActual);
 }
 
 export const handler = async (event: NetlifyEvent) => {
@@ -18,7 +32,7 @@ export const handler = async (event: NetlifyEvent) => {
     const adminSecret = process.env.ADMIN_SECRET_KEY;
     const providedSecret = event.headers['x-admin-key'] || event.headers['x-dev-key'];
 
-    if (!adminSecret || providedSecret !== adminSecret) {
+    if (!adminSecret || !timingSafeSecretCompare(providedSecret, adminSecret)) {
       return {
         statusCode: 403,
         headers: { 'Content-Type': 'application/json' },

@@ -1,8 +1,23 @@
 import { Router, Response } from "express";
+import crypto from "crypto";
 import { getFirestoreDb } from "../db";
 import { optionalAuth, AuthenticatedRequest } from "../middleware/auth";
 
 export const healthRouter = Router();
+
+function timingSafeSecretCompare(provided?: string | string[], actual?: string): boolean {
+  if (!provided || !actual) return false;
+  const providedStr = Array.isArray(provided) ? provided[0] : provided;
+  const bufProvided = Buffer.from(providedStr);
+  const bufActual = Buffer.from(actual);
+
+  if (bufProvided.length !== bufActual.length) {
+    // Perform dummy timingSafeEqual to neutralize timing differences
+    crypto.timingSafeEqual(bufProvided, bufProvided);
+    return false;
+  }
+  return crypto.timingSafeEqual(bufProvided, bufActual);
+}
 
 /**
  * GET /api/health
@@ -12,7 +27,7 @@ export const healthRouter = Router();
 healthRouter.get("/", optionalAuth, async (req: AuthenticatedRequest, res: Response) => {
   const adminSecret = process.env.ADMIN_SECRET_KEY;
   const providedSecret = req.headers["x-admin-key"] || req.headers["x-dev-key"];
-  const isSecretAdmin = Boolean(adminSecret && providedSecret && adminSecret === providedSecret);
+  const isSecretAdmin = Boolean(adminSecret && providedSecret && timingSafeSecretCompare(providedSecret, adminSecret));
   const isAdmin = Boolean(req.user?.isAdmin || isSecretAdmin);
 
   // Minimal public health check

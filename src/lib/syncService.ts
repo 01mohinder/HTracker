@@ -76,20 +76,9 @@ export function subscribeToUserCloudState(
 
   const unsubscribe = onSnapshot(
     userDocRef,
-    { includeMetadataChanges: true },
     (snapshot) => {
-      // Guard 1: Do not overwrite optimistic local UI state while local write is in flight
-      if (snapshot.metadata.hasPendingWrites) {
-        return;
-      }
-
       if (snapshot.exists()) {
         const data = snapshot.data() as Partial<CloudUserState>;
-        
-        // Guard 2: If this update originated from this exact device, skip to avoid echo loop
-        if (data.updatedByDevice && data.updatedByDevice === getDeviceId()) {
-          return;
-        }
 
         const cleanState: CloudUserState = {
           habits: Array.isArray(data.habits) ? data.habits : [],

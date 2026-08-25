@@ -16,14 +16,30 @@ async function startServer() {
 
   // Security, CORS, CSP and performance headers middleware
   app.use((req, res, next) => {
-    // CORS headers
+    // CORS headers - secure origin verification
     const origin = req.headers.origin;
-    if (origin) {
+    const allowedEnvOrigins = (process.env.ALLOWED_ORIGINS || process.env.ALLOWED_ORIGIN || "")
+      .split(",")
+      .map((s) => s.trim())
+      .filter(Boolean);
+
+    const isLocalhost = origin && /^https?:\/\/(localhost|127\.0\.0\.1)(:\d+)?$/.test(origin);
+    const isCloudOrTrustedHost =
+      origin &&
+      /^https:\/\/([a-zA-Z0-9-]+\.)*(run\.app|web\.app|firebaseapp\.com|netlify\.app|vercel\.app|google\.com)$/.test(
+        origin
+      );
+    const isExplicitlyAllowed = origin && allowedEnvOrigins.includes(origin);
+
+    if (origin && (isLocalhost || isCloudOrTrustedHost || isExplicitlyAllowed)) {
       res.setHeader("Access-Control-Allow-Origin", origin);
       res.setHeader("Access-Control-Allow-Credentials", "true");
-    } else {
+      res.setHeader("Vary", "Origin");
+    } else if (!origin) {
+      // Direct same-origin or tool requests without origin header
       res.setHeader("Access-Control-Allow-Origin", "*");
     }
+    // Disallowed cross-origin requests receive no Access-Control-Allow-Origin header, blocking browser access
     res.setHeader(
       "Access-Control-Allow-Headers",
       "Origin, X-Requested-With, Content-Type, Accept, Authorization, x-admin-key, x-dev-key"
