@@ -1,5 +1,52 @@
-import { doc, setDoc, getDoc, onSnapshot, db, serverTimestamp } from './firebase';
+import { doc, setDoc, getDoc, onSnapshot, db, serverTimestamp, auth } from './firebase';
 import { Habit, UserStats, Routine } from '../types';
+
+export enum OperationType {
+  CREATE = 'create',
+  UPDATE = 'update',
+  DELETE = 'delete',
+  LIST = 'list',
+  GET = 'get',
+  WRITE = 'write',
+}
+
+export interface FirestoreErrorInfo {
+  error: string;
+  operationType: OperationType;
+  path: string | null;
+  authInfo: {
+    userId?: string | null;
+    email?: string | null;
+    emailVerified?: boolean | null;
+    isAnonymous?: boolean | null;
+    tenantId?: string | null;
+    providerInfo?: {
+      providerId?: string | null;
+      email?: string | null;
+    }[];
+  };
+}
+
+export function handleFirestoreError(error: unknown, operationType: OperationType, path: string | null): FirestoreErrorInfo {
+  const errInfo: FirestoreErrorInfo = {
+    error: error instanceof Error ? error.message : String(error),
+    authInfo: {
+      userId: auth.currentUser?.uid,
+      email: auth.currentUser?.email,
+      emailVerified: auth.currentUser?.emailVerified,
+      isAnonymous: auth.currentUser?.isAnonymous,
+      tenantId: auth.currentUser?.tenantId,
+      providerInfo: auth.currentUser?.providerData?.map((provider) => ({
+        providerId: provider.providerId,
+        email: provider.email,
+      })) || [],
+    },
+    operationType,
+    path,
+  };
+  console.warn('Firestore Operation Notice:', JSON.stringify(errInfo));
+  return errInfo;
+}
 
 export interface CloudUserState {
   habits: Habit[];
@@ -37,11 +84,16 @@ export function getDeviceId(): string {
 
 /**
  * Returns the canonical Firestore document ID for an authenticated user.
- * Keys directly on auth.uid to ensure strict match with request.auth.uid security rules.
+ * Keys directly on auth.currentUser.uid to ensure strict match with request.auth.uid security rules.
  */
 export function getCanonicalUserDocId(
   user: { email?: string; id?: string; uid?: string; provider?: string } | string | null | undefined
 ): string | null {
+  // If actively signed in with Firebase Auth, always use auth.currentUser.uid
+  if (auth.currentUser && auth.currentUser.uid) {
+    return auth.currentUser.uid;
+  }
+
   if (!user) return null;
 
   if (typeof user === 'string') {
@@ -57,7 +109,6 @@ export function getCanonicalUserDocId(
 
   const uid = user.id || (user as any).uid;
   if (uid && uid !== 'guest' && uid !== 'local_champion' && !uid.startsWith('local_')) {
-    // Also verify user has an actual authenticated email or non-local UID
     return uid.trim();
   }
 
@@ -73,11 +124,17 @@ export function subscribeToUserCloudState(
   onStateReceived: (data: CloudUserState) => void,
   onError?: (error: any) => void
 ): () => void {
-  const docId = getCanonicalUserDocId(user);
-  if (!docId) {
+  // Require active Firebase authenticated user to prevent unauthenticated listen requests
+  if (!auth.currentUser) {
     return () => {};
   }
 
+  const docId = getCanonicalUserDocId(user);
+  if (!docId || (auth.currentUser && auth.currentUser.uid !== docId)) {
+    return () => {};
+  }
+
+  const path = `user_data/${docId}`;
   const userDocRef = doc(db, 'user_data', docId);
 
   const unsubscribe = onSnapshot(
@@ -107,7 +164,11 @@ export function subscribeToUserCloudState(
       }
     },
     (err) => {
-      console.warn('[Real-Time Multi-Device Sync] onSnapshot notification:', err);
+      // Gracefully ignore idle listener cancellations
+      if (err?.code === 'cancelled' || err?.message?.includes('CANCELLED')) {
+        return;
+      }
+      handleFirestoreError(err, OperationType.GET, path);
       if (onError) onError(err);
     }
   );
@@ -128,11 +189,19 @@ export async function writeUserCloudState(
     routines: Routine[];
   }
 ): Promise<boolean> {
-  const docId = getCanonicalUserDocId(user);
-  if (!docId) return false;
+  // Only write if authenticated in Firebase Auth
+  if (!auth.currentUser) {
+    return false;
+  }
 
-  const email = typeof user === 'object' ? user?.email : undefined;
-  const name = typeof user === 'object' ? user?.name : undefined;
+  const docId = getCanonicalUserDocId(user);
+  if (!docId || (auth.currentUser && auth.currentUser.uid !== docId)) {
+    return false;
+  }
+
+  const email = typeof user === 'object' ? user?.email : (auth.currentUser.email || undefined);
+  const name = typeof user === 'object' ? user?.name : (auth.currentUser.displayName || undefined);
+  const path = `user_data/${docId}`;
 
   try {
     const userDocRef = doc(db, 'user_data', docId);
@@ -167,7 +236,7 @@ export async function writeUserCloudState(
 
     return true;
   } catch (err) {
-    console.error('[Real-Time Multi-Device Sync] write error:', err);
+    handleFirestoreError(err, OperationType.WRITE, path);
     return false;
   }
 }
@@ -178,10 +247,17 @@ export async function writeUserCloudState(
 export async function fetchUserCloudStateDirect(
   user: { email?: string; id?: string; uid?: string } | string | null
 ): Promise<CloudUserState | null> {
-  const docId = getCanonicalUserDocId(user);
-  if (!docId) return null;
+  if (!auth.currentUser) {
+    return null;
+  }
 
-  const email = typeof user === 'object' ? user?.email : undefined;
+  const docId = getCanonicalUserDocId(user);
+  if (!docId || (auth.currentUser && auth.currentUser.uid !== docId)) {
+    return null;
+  }
+
+  const email = typeof user === 'object' ? user?.email : auth.currentUser.email;
+  const path = `user_data/${docId}`;
 
   try {
     const userDocRef = doc(db, 'user_data', docId);
@@ -204,47 +280,11 @@ export async function fetchUserCloudStateDirect(
         routines: Array.isArray(data.routines) ? data.routines : [],
         updatedAt: data.updatedAt || new Date().toISOString(),
         updatedByDevice: data.updatedByDevice,
-        userEmail: data.userEmail || email,
+        userEmail: data.userEmail || email || undefined,
       };
     }
-
-    // Auto-migration: Check legacy email-keyed document if UID doc doesn't exist yet
-    if (email && email !== 'guest@htgrind.app') {
-      const legacyDocId = 'user_' + email.toLowerCase().trim().replace(/[^a-zA-Z0-9]/g, '_');
-      if (legacyDocId !== docId) {
-        try {
-          const legacyRef = doc(db, 'user_data', legacyDocId);
-          const legacySnap = await getDoc(legacyRef);
-          if (legacySnap.exists()) {
-            const legacyData = legacySnap.data() as Partial<CloudUserState>;
-            const migratedState: CloudUserState = {
-              habits: Array.isArray(legacyData.habits) ? legacyData.habits : [],
-              archivedHabits: Array.isArray(legacyData.archivedHabits) ? legacyData.archivedHabits : [],
-              stats: legacyData.stats || {
-                level: 1,
-                xp: 0,
-                totalCompletions: 0,
-                grindScore: 0,
-                streakFreezes: 1,
-                achievements: ['welcome_badge'],
-              },
-              habitNotes: legacyData.habitNotes || {},
-              routines: Array.isArray(legacyData.routines) ? legacyData.routines : [],
-              updatedAt: serverTimestamp(),
-              updatedByDevice: getDeviceId(),
-              userEmail: email,
-            };
-            // Save to new canonical UID doc
-            await setDoc(userDocRef, migratedState, { merge: true });
-            return migratedState;
-          }
-        } catch {
-          // Ignore legacy read error
-        }
-      }
-    }
   } catch (err) {
-    console.warn('[Real-Time Multi-Device Sync] Direct fetch error:', err);
+    handleFirestoreError(err, OperationType.GET, path);
   }
   return null;
 }
