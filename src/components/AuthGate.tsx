@@ -25,7 +25,7 @@ import {
 } from '../lib/firebase';
 
 interface AuthGateProps {
-  onLogin: (user: UserAccount, options: { importGuestData: boolean }) => void;
+  onLogin: (user: UserAccount, options?: { importGuestData?: boolean }) => void;
 }
 
 export const AuthGate: React.FC<AuthGateProps> = ({ onLogin }) => {
@@ -36,8 +36,17 @@ export const AuthGate: React.FC<AuthGateProps> = ({ onLogin }) => {
   const [error, setError] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
 
-  // Configure Google Provider to force account selection for security
-  googleProvider.setCustomParameters({ prompt: 'select_account' });
+  const handleGuestAccess = () => {
+    const guestUser: UserAccount = {
+      id: 'guest_' + Math.random().toString(36).substring(2, 9),
+      email: 'guest@htgrind.app',
+      name: 'Champion',
+      avatar: 'https://api.dicebear.com/7.x/avataaars/svg?seed=ChampionGuest',
+      provider: 'guest',
+      createdAt: new Date().toISOString(),
+    };
+    onLogin(guestUser, { importGuestData: true });
+  };
 
   const executeLoginAndSyncMongo = async (user: UserAccount) => {
     try {
@@ -349,8 +358,8 @@ export const AuthGate: React.FC<AuthGateProps> = ({ onLogin }) => {
             </button>
           </form>
 
-          {/* Toggle Tab */}
-          <div className="text-center pt-3 border-t border-slate-800/60 space-y-2.5">
+          {/* Toggle Tab & Guest Access */}
+          <div className="text-center pt-3 border-t border-slate-800/60 space-y-3">
             <p className="text-xs text-slate-400">
               {tab === 'signin' ? "Don't have an account?" : 'Already registered?'}
               <button
@@ -364,6 +373,15 @@ export const AuthGate: React.FC<AuthGateProps> = ({ onLogin }) => {
                 {tab === 'signin' ? 'Register Now' : 'Sign In'}
               </button>
             </p>
+
+            <button
+              type="button"
+              onClick={handleGuestAccess}
+              className="w-full py-2.5 px-3 rounded-xl bg-slate-800/60 hover:bg-slate-800 border border-slate-700/80 hover:border-slate-600 text-slate-300 hover:text-white font-medium text-xs transition-all flex items-center justify-center gap-2"
+            >
+              <Sparkles className="w-3.5 h-3.5 text-amber-400" />
+              <span>Explore Demo / Continue as Guest</span>
+            </button>
           </div>
         </div>
 

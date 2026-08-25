@@ -52,13 +52,18 @@ const app = !getApps().length ? initializeApp(activeConfig) : getApp();
 
 export const auth = getAuth(app);
 export const googleProvider = new GoogleAuthProvider();
+try {
+  googleProvider.setCustomParameters({ prompt: 'select_account' });
+} catch {
+  // Ignore
+}
 
 // Read firestore database ID from env first, then fallback to config
 const cfg = firebaseConfig as any;
 const rawDbId = metaEnv.VITE_FIREBASE_DATABASE_ID || metaEnv.VITE_FIRESTORE_DATABASE_ID || cfg.firestoreDatabaseId;
 const dbId = rawDbId && rawDbId !== '(default)' ? rawDbId : undefined;
 
-// Enable persistent offline cache for reliable PWA write queue and multi-tab sync
+// Enable persistent offline cache for reliable PWA write queue and multi-tab sync with graceful fallback
 function initDb() {
   try {
     const firestoreSettings = {
@@ -69,9 +74,13 @@ function initDb() {
     return dbId
       ? initializeFirestore(app, firestoreSettings, dbId)
       : initializeFirestore(app, firestoreSettings);
-  } catch {
-    // If already initialized in hot-reload or environment
-    return dbId ? getFirestore(app, dbId) : getFirestore(app);
+  } catch (primaryErr) {
+    try {
+      return dbId ? getFirestore(app, dbId) : getFirestore(app);
+    } catch (fallbackErr) {
+      console.warn('[Firebase] Firestore init notice:', fallbackErr);
+      return getFirestore(app);
+    }
   }
 }
 

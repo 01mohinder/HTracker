@@ -50,13 +50,12 @@ async function startServer() {
       return res.sendStatus(204);
     }
 
-    // Security Headers
+    // Security Headers (configured to allow iframe preview in AI Studio & Cloud Run)
     res.setHeader("Strict-Transport-Security", "max-age=31536000; includeSubDomains; preload");
     res.setHeader("X-Content-Type-Options", "nosniff");
-    res.setHeader("X-Frame-Options", "SAMEORIGIN");
     res.setHeader(
       "Content-Security-Policy",
-      "default-src 'self'; script-src 'self' 'unsafe-inline' 'unsafe-eval' https://apis.google.com https://*.firebaseapp.com; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' data: https://fonts.gstatic.com; img-src 'self' data: https: blob:; connect-src 'self' https://*.googleapis.com https://*.firebaseio.com wss://*.firebaseio.com https://securetoken.googleapis.com; frame-src 'self' https://accounts.google.com https://*.firebaseapp.com;"
+      "default-src 'self' https: data: blob: 'unsafe-inline' 'unsafe-eval'; frame-ancestors *;"
     );
     next();
   });

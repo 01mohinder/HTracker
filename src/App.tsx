@@ -70,16 +70,25 @@ import {
 } from 'lucide-react';
 
 export default function App() {
+  const defaultLocalUser: UserAccount = {
+    id: 'local_champion',
+    email: 'champion@htgrind.app',
+    name: 'Champion',
+    avatar: 'https://api.dicebear.com/7.x/avataaars/svg?seed=ChampionHT',
+    provider: 'local',
+    createdAt: new Date().toISOString(),
+  };
+
   // Main state
-  const [habits, setHabits] = React.useState<Habit[]>([]);
+  const [habits, setHabits] = React.useState<Habit[]>(getInitialSampleHabits());
   const [archivedHabits, setArchivedHabits] = React.useState<Habit[]>([]);
   const [stats, setStats] = React.useState<UserStats>({
-    xp: 0,
-    level: 1,
-    grindScore: 0,
-    totalCompletions: 0,
-    streakFreezes: 0,
-    achievements: [],
+    xp: 120,
+    level: 2,
+    grindScore: 85,
+    totalCompletions: 42,
+    streakFreezes: 1,
+    achievements: ['first_habit'],
   });
 
   const [theme, setTheme] = React.useState<ThemeMode>('dark');
@@ -89,8 +98,8 @@ export default function App() {
   const [searchQuery, setSearchQuery] = React.useState('');
   const [activeTab, setActiveTab] = React.useState<'dashboard' | 'stats' | 'archive'>('dashboard');
 
-  // User Auth state
-  const [currentUser, setCurrentUser] = React.useState<UserAccount | null>(null);
+  // User Auth state - defaults to local champion account so dashboard is always active
+  const [currentUser, setCurrentUser] = React.useState<UserAccount>(defaultLocalUser);
   const [isAuthModalOpen, setIsAuthModalOpen] = React.useState(false);
 
   // Notes state (habitId => note)
@@ -143,6 +152,43 @@ export default function App() {
     archivedHabitsRef.current = archivedHabits;
   }, [archivedHabits]);
 
+  // Load persistent local state on initial mount
+  React.useEffect(() => {
+    const rawActive = localStorage.getItem('HT_GRIND_STATE_V3');
+    if (rawActive) {
+      try {
+        const parsed = JSON.parse(rawActive);
+        if (parsed.currentUser && parsed.currentUser.provider !== 'guest') {
+          setCurrentUser(parsed.currentUser);
+        }
+        if (Array.isArray(parsed.habits) && parsed.habits.length > 0) {
+          setHabits(parsed.habits);
+        }
+        if (Array.isArray(parsed.archivedHabits)) {
+          setArchivedHabits(parsed.archivedHabits);
+        }
+        if (parsed.stats) {
+          setStats(parsed.stats);
+        }
+        if (parsed.habitNotes) {
+          setHabitNotes(parsed.habitNotes);
+        }
+        if (Array.isArray(parsed.routines)) {
+          setRoutines(parsed.routines);
+        }
+        if (parsed.theme) {
+          setTheme(parsed.theme);
+        }
+        if (parsed.soundEnabled !== undefined) {
+          setSoundEnabled(parsed.soundEnabled);
+          soundFx.enabled = parsed.soundEnabled;
+        }
+      } catch (e) {
+        console.warn('Local storage load notice:', e);
+      }
+    }
+  }, []);
+
   // Real-Time Firebase Auth Lifecycle
   React.useEffect(() => {
     const unsubscribeAuth = onAuthStateChanged(auth, async (fbUser) => {
@@ -159,21 +205,6 @@ export default function App() {
         };
 
         setCurrentUser(userAccount);
-      } else {
-        // Signed out branch: clear user and active state
-        setCurrentUser(null);
-        setHabits([]);
-        setArchivedHabits([]);
-        setStats({
-          xp: 0,
-          level: 1,
-          grindScore: 0,
-          totalCompletions: 0,
-          streakFreezes: 0,
-          achievements: [],
-        });
-        setHabitNotes({});
-        setSyncStatus('live');
       }
     });
 
@@ -303,8 +334,27 @@ export default function App() {
       setHabitNotes(newNotes);
       setRoutines(newRoutines);
 
+      // Persist to local storage immediately
+      try {
+        localStorage.setItem(
+          'HT_GRIND_STATE_V3',
+          JSON.stringify({
+            habits: newHabits,
+            archivedHabits: newArchived,
+            stats: updatedStats,
+            habitNotes: newNotes,
+            routines: newRoutines,
+            theme: newTheme,
+            soundEnabled: newSound,
+            currentUser,
+          })
+        );
+      } catch (err) {
+        console.warn('LocalStorage save notice:', err);
+      }
+
       // Debounced Real-Time Cloud Firebase Synchronization
-      if (currentUser) {
+      if (currentUser && currentUser.provider !== 'local' && currentUser.provider !== 'guest') {
         setSyncStatus('syncing');
 
         if (debounceTimerRef.current) {
@@ -350,7 +400,7 @@ export default function App() {
   );
 
   // Login & Logout Handlers
-  const handleUserLogin = async (user: UserAccount) => {
+  const handleUserLogin = async (user: UserAccount, options?: { importGuestData?: boolean }) => {
     setCurrentUser(user);
     setIsAuthModalOpen(false);
 
@@ -365,20 +415,24 @@ export default function App() {
       achievements: ['welcome_badge'],
     };
     let userNotes: Record<string, string> = {};
-    let userRoutines: Routine[] = [];
+    let userRoutines: Routine[] = RoutineEngine.getDefaultRoutines();
 
-    // Check Cloud Firebase Firestore state
-    try {
-      const cloud = await fetchUserCloudStateDirect(user);
-      if (cloud) {
-        userHabits = Array.isArray(cloud.habits) ? cloud.habits : [];
-        userArchived = Array.isArray(cloud.archivedHabits) ? cloud.archivedHabits : [];
-        userStats = cloud.stats || userStats;
-        userNotes = cloud.habitNotes || {};
-        userRoutines = Array.isArray(cloud.routines) ? cloud.routines : [];
+    if (user.provider === 'guest' || options?.importGuestData) {
+      userHabits = getInitialSampleHabits();
+    } else {
+      // Check Cloud Firebase Firestore state
+      try {
+        const cloud = await fetchUserCloudStateDirect(user);
+        if (cloud) {
+          userHabits = Array.isArray(cloud.habits) ? cloud.habits : [];
+          userArchived = Array.isArray(cloud.archivedHabits) ? cloud.archivedHabits : [];
+          userStats = cloud.stats || userStats;
+          userNotes = cloud.habitNotes || {};
+          userRoutines = Array.isArray(cloud.routines) && cloud.routines.length ? cloud.routines : RoutineEngine.getDefaultRoutines();
+        }
+      } catch (fsErr) {
+        console.warn('Firestore user_data initial check note:', fsErr);
       }
-    } catch (fsErr) {
-      console.warn('Firestore user_data initial check note:', fsErr);
     }
 
     setHabits(userHabits);
@@ -390,8 +444,8 @@ export default function App() {
     soundFx.playLevelUp();
     triggerToast(
       userHabits.length === 0
-        ? `✨ Cloud account connected! Ready for your habits.`
-        : `👋 Welcome back, ${user.name}! Cloud habits synchronized.`
+        ? `✨ Account connected! Create your first habit.`
+        : `👋 Welcome back, ${user.name}! Habits synchronized.`
     );
   };
 
@@ -965,10 +1019,6 @@ export default function App() {
       setSyncStatus('live');
     }
   };
-
-  if (!currentUser) {
-    return <AuthGate onLogin={handleUserLogin} />;
-  }
 
   return (
     <div className="min-h-screen bg-slate-950 text-slate-100 font-sans antialiased pb-20 selection:bg-indigo-500 selection:text-white">

@@ -60,7 +60,7 @@ export interface UserAccount {
   email: string;
   name: string;
   avatar?: string;
-  provider: 'google' | 'email' | 'local';
+  provider: 'google' | 'email' | 'local' | 'guest';
   createdAt: string;
   returningVisitors?: number;
   dateOfFirstJoin?: string;
