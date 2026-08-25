@@ -33,7 +33,7 @@ interface HeaderProps {
   onOpenRoutineFlow?: () => void;
   onExport: () => void;
   onImport: (e: React.ChangeEvent<HTMLInputElement>) => void;
-  syncStatus?: 'live' | 'syncing' | 'offline';
+  syncStatus?: 'live' | 'syncing' | 'offline' | 'local';
   onManualSync?: () => void;
 }
 
@@ -51,7 +51,7 @@ export const Header: React.FC<HeaderProps> = ({
   onOpenRoutineFlow,
   onExport,
   onImport,
-  syncStatus = 'live',
+  syncStatus = 'local',
   onManualSync,
 }) => {
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -146,12 +146,12 @@ export const Header: React.FC<HeaderProps> = ({
           
           {/* USER GOOGLE / EMAIL AUTH BADGE & MULTI-DEVICE SYNC */}
           <div className="flex items-center gap-1.5">
-            <button
-              onClick={onOpenAuth}
-              className="flex items-center gap-2 px-3 py-1.5 rounded-full bg-slate-800/90 hover:bg-slate-800 border border-slate-700/80 text-slate-200 text-xs font-semibold transition-all shadow-sm"
-              title={currentUser ? `Logged in as ${currentUser.name} (${currentUser.email}) — Real-time Multi-device sync enabled` : 'Sign in with Google or Email'}
-            >
-              {currentUser ? (
+            {currentUser && currentUser.provider !== 'guest' && currentUser.provider !== 'local' && currentUser.email ? (
+              <button
+                onClick={onOpenAuth}
+                className="flex items-center gap-2 px-3 py-1.5 rounded-full bg-slate-800/90 hover:bg-slate-800 border border-slate-700/80 text-slate-200 text-xs font-semibold transition-all shadow-sm"
+                title={`Logged in as ${currentUser.name} (${currentUser.email}) — Real-time Multi-device sync enabled`}
+              >
                 <div className="flex items-center gap-1.5">
                   {currentUser.avatar ? (
                     <img
@@ -178,19 +178,30 @@ export const Header: React.FC<HeaderProps> = ({
                         ? 'Cloud Firebase Real-Time Sync Connected'
                         : syncStatus === 'syncing'
                         ? 'Syncing to Cloud Firebase...'
-                        : 'Cloud Firebase Connecting'
+                        : 'Cloud Sync Connecting'
                     }
                   />
                 </div>
-              ) : (
+              </button>
+            ) : (
+              <button
+                onClick={onOpenAuth}
+                className="flex items-center gap-2 px-3 py-1.5 rounded-full bg-slate-800/90 hover:bg-slate-800 border border-slate-700/80 text-slate-200 text-xs font-semibold transition-all shadow-sm"
+                title="Guest Mode: All data stored locally on your device. Click to sign in or connect Cloud Sync."
+              >
                 <div className="flex items-center gap-1.5">
-                  <User className="w-3.5 h-3.5 text-indigo-400" />
-                  <span>Sign In</span>
+                  <div className="w-5 h-5 rounded-full bg-slate-700 border border-slate-600 flex items-center justify-center text-[10px] font-bold text-slate-300">
+                    <User className="w-3 h-3 text-indigo-400" />
+                  </div>
+                  <span className="hidden sm:inline">Guest Mode</span>
+                  <span className="px-1.5 py-0.2 text-[9px] font-medium rounded-full bg-indigo-950 text-indigo-300 border border-indigo-800/60 hidden md:inline">
+                    Local Data
+                  </span>
                 </div>
-              )}
-            </button>
+              </button>
+            )}
 
-            {currentUser && onManualSync && (
+            {currentUser && currentUser.provider !== 'guest' && currentUser.provider !== 'local' && currentUser.email && onManualSync && (
               <button
                 onClick={onManualSync}
                 className="hidden md:flex items-center gap-1 px-2 py-1 rounded-full bg-slate-800/60 hover:bg-slate-800 border border-slate-700/60 text-[11px] text-slate-300 font-medium transition-all"

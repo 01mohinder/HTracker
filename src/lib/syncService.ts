@@ -40,18 +40,24 @@ export function getDeviceId(): string {
  * Keys directly on auth.uid to ensure strict match with request.auth.uid security rules.
  */
 export function getCanonicalUserDocId(
-  user: { email?: string; id?: string; uid?: string } | string | null | undefined
+  user: { email?: string; id?: string; uid?: string; provider?: string } | string | null | undefined
 ): string | null {
   if (!user) return null;
 
   if (typeof user === 'string') {
     const clean = user.trim();
-    if (!clean || clean === 'guest') return null;
+    if (!clean || clean === 'guest' || clean === 'local_champion' || clean.startsWith('local_')) return null;
     return clean;
   }
 
+  // Pure local or guest accounts must never touch Cloud Firestore
+  if (user.provider === 'guest' || user.provider === 'local') {
+    return null;
+  }
+
   const uid = user.id || (user as any).uid;
-  if (uid && uid !== 'guest') {
+  if (uid && uid !== 'guest' && uid !== 'local_champion' && !uid.startsWith('local_')) {
+    // Also verify user has an actual authenticated email or non-local UID
     return uid.trim();
   }
 

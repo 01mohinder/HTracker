@@ -264,10 +264,14 @@ export const AuthModal: React.FC<AuthModalProps> = ({
             </div>
             <div>
               <h3 className="text-base font-bold text-slate-100">
-                {currentUser ? 'User Account & Cloud Sync' : 'Sign In / Account Portal'}
+                {currentUser && currentUser.provider !== 'guest' && currentUser.provider !== 'local' && currentUser.email
+                  ? 'User Account & Cloud Sync'
+                  : 'Sign In / Account Portal'}
               </h3>
               <p className="text-[11px] text-slate-400 font-medium">
-                {currentUser ? 'Google Drive Backup & Device Sync Active' : 'Sign in to create a clean account or sync habits'}
+                {currentUser && currentUser.provider !== 'guest' && currentUser.provider !== 'local' && currentUser.email
+                  ? 'Multi-Device Real-Time Cloud Sync Active'
+                  : 'Guest Mode: Data is stored 100% locally on this device'}
               </p>
             </div>
           </div>
@@ -282,8 +286,8 @@ export const AuthModal: React.FC<AuthModalProps> = ({
 
         {/* Content Body */}
         <div className="p-6 overflow-y-auto space-y-5 flex-1">
-          {currentUser ? (
-            /* LOGGED IN VIEW */
+          {currentUser && currentUser.provider !== 'guest' && currentUser.provider !== 'local' && currentUser.email ? (
+            /* LOGGED IN CLOUD ACCOUNT VIEW */
             <div className="space-y-5">
               
               {/* Profile Card */}
@@ -405,6 +409,16 @@ export const AuthModal: React.FC<AuthModalProps> = ({
           ) : (
             /* SIGN IN / REGISTER FORM */
             <div className="space-y-4">
+              {/* GUEST MODE NOTICE */}
+              <div className="p-3.5 rounded-2xl bg-indigo-950/40 border border-indigo-500/20 text-xs space-y-1.5">
+                <div className="flex items-center gap-2 text-indigo-300 font-bold">
+                  <Database className="w-4 h-4 text-indigo-400 shrink-0" />
+                  <span>Guest Mode is Active</span>
+                </div>
+                <p className="text-[11px] text-slate-300 leading-relaxed">
+                  All your habits, streaks, XP, reflections, and routines are stored <strong>100% locally on your browser</strong>. Sign in below anytime to connect Real-Time Cloud Sync across your devices.
+                </p>
+              </div>
               
               {/* GOOGLE SIGN IN BUTTON */}
               <button

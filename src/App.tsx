@@ -72,10 +72,10 @@ import {
 export default function App() {
   const defaultLocalUser: UserAccount = {
     id: 'local_champion',
-    email: 'champion@htgrind.app',
+    email: '',
     name: 'Champion',
     avatar: 'https://api.dicebear.com/7.x/avataaars/svg?seed=ChampionHT',
-    provider: 'local',
+    provider: 'guest',
     createdAt: new Date().toISOString(),
   };
 
@@ -98,7 +98,7 @@ export default function App() {
   const [searchQuery, setSearchQuery] = React.useState('');
   const [activeTab, setActiveTab] = React.useState<'dashboard' | 'stats' | 'archive'>('dashboard');
 
-  // User Auth state - defaults to local champion account so dashboard is always active
+  // User Auth state - defaults to guest account with local device storage
   const [currentUser, setCurrentUser] = React.useState<UserAccount>(defaultLocalUser);
   const [isAuthModalOpen, setIsAuthModalOpen] = React.useState(false);
 
@@ -122,8 +122,8 @@ export default function App() {
   const [routines, setRoutines] = React.useState<Routine[]>(RoutineEngine.getDefaultRoutines());
   const [isRoutineFlowOpen, setIsRoutineFlowOpen] = React.useState(false);
 
-  // Multi-Device Real-Time Sync Status
-  const [syncStatus, setSyncStatus] = React.useState<'live' | 'syncing' | 'offline'>('live');
+  // Multi-Device Real-Time Sync Status (defaults to 'local' for guest)
+  const [syncStatus, setSyncStatus] = React.useState<'live' | 'syncing' | 'offline' | 'local'>('local');
   const [lastSyncedTime, setLastSyncedTime] = React.useState<Date | null>(null);
 
   // Undo Toast state
@@ -213,15 +213,16 @@ export default function App() {
     };
   }, []);
 
-  // Multi-Device Real-Time Cloud Subscription
+  // Multi-Device Real-Time Cloud Subscription (Only active for logged-in cloud accounts)
   React.useEffect(() => {
-    if (!currentUser || !currentUser.id) {
+    if (!currentUser || currentUser.provider === 'guest' || currentUser.provider === 'local' || !currentUser.email) {
+      setSyncStatus('local');
       return;
     }
 
     setSyncStatus('syncing');
 
-    // Subscribe to live Firestore stream
+    // Subscribe to live Firestore stream for authenticated user
     const unsubscribe = subscribeToUserCloudState(
       currentUser,
       (cloudState) => {
@@ -289,11 +290,11 @@ export default function App() {
       document.removeEventListener('visibilitychange', handleVisibilityChange);
       window.removeEventListener('focus', handleVisibilityChange);
     };
-  }, [currentUser?.id]);
+  }, [currentUser?.id, currentUser?.provider, currentUser?.email]);
 
-  // Sync user revisit count with MongoDB
+  // Sync user revisit count with MongoDB (Only for verified cloud accounts)
   React.useEffect(() => {
-    if (currentUser?.email && currentUser?.name) {
+    if (currentUser?.email && currentUser?.name && currentUser.provider !== 'guest' && currentUser.provider !== 'local') {
       syncUserRecordToMongoDB(currentUser.name, currentUser.email, currentUser.id)
         .then((synced) => {
           if (synced && typeof synced.returningVisitors === 'number') {
@@ -304,9 +305,9 @@ export default function App() {
         })
         .catch((err) => console.warn('MongoDB revisit sync notice:', err));
     }
-  }, [currentUser?.email, currentUser?.id]);
+  }, [currentUser?.email, currentUser?.id, currentUser?.provider]);
 
-  // Master Atomic Cloud Firebase State Committer
+  // Master Atomic State Committer (Local-first + debounced cloud sync for authenticated accounts)
   const commitCloudState = React.useCallback(
     (
       newHabits: Habit[],
@@ -334,7 +335,7 @@ export default function App() {
       setHabitNotes(newNotes);
       setRoutines(newRoutines);
 
-      // Persist to local storage immediately
+      // Persist to local storage immediately (All user data in guest mode stays 100% on device)
       try {
         localStorage.setItem(
           'HT_GRIND_STATE_V3',
@@ -353,33 +354,37 @@ export default function App() {
         console.warn('LocalStorage save notice:', err);
       }
 
-      // Debounced Real-Time Cloud Firebase Synchronization
-      if (currentUser && currentUser.provider !== 'local' && currentUser.provider !== 'guest') {
-        setSyncStatus('syncing');
-
-        if (debounceTimerRef.current) {
-          clearTimeout(debounceTimerRef.current);
-        }
-
-        debounceTimerRef.current = setTimeout(() => {
-          writeUserCloudState(currentUser, {
-            habits: newHabits,
-            archivedHabits: newArchived,
-            stats: updatedStats,
-            habitNotes: newNotes,
-            routines: newRoutines,
-          }).then((success) => {
-            if (success) {
-              setSyncStatus('live');
-              setLastSyncedTime(new Date());
-            } else {
-              setSyncStatus('offline');
-            }
-          }).catch(() => {
-            setSyncStatus('offline');
-          });
-        }, 300);
+      // If in Guest Mode, ensure status is local and bypass cloud writes
+      if (!currentUser || currentUser.provider === 'guest' || currentUser.provider === 'local' || !currentUser.email) {
+        setSyncStatus('local');
+        return;
       }
+
+      // Debounced Real-Time Cloud Firebase Synchronization for authenticated users
+      setSyncStatus('syncing');
+
+      if (debounceTimerRef.current) {
+        clearTimeout(debounceTimerRef.current);
+      }
+
+      debounceTimerRef.current = setTimeout(() => {
+        writeUserCloudState(currentUser, {
+          habits: newHabits,
+          archivedHabits: newArchived,
+          stats: updatedStats,
+          habitNotes: newNotes,
+          routines: newRoutines,
+        }).then((success) => {
+          if (success) {
+            setSyncStatus('live');
+            setLastSyncedTime(new Date());
+          } else {
+            setSyncStatus('offline');
+          }
+        }).catch(() => {
+          setSyncStatus('offline');
+        });
+      }, 300);
     },
     [currentUser, archivedHabits, stats, habitNotes, routines, theme, soundEnabled]
   );
@@ -489,20 +494,21 @@ export default function App() {
     } catch (e) {
       console.warn('Sign out notice:', e);
     }
-    setCurrentUser(null);
-    setHabits([]);
+    setCurrentUser(defaultLocalUser);
+    setSyncStatus('local');
+    setHabits(getInitialSampleHabits());
     setArchivedHabits([]);
     setStats({
       xp: 0,
       level: 1,
       grindScore: 0,
       totalCompletions: 0,
-      streakFreezes: 0,
-      achievements: [],
+      streakFreezes: 1,
+      achievements: ['first_habit'],
     });
     setHabitNotes({});
     soundFx.playClick();
-    triggerToast('Signed out of Cloud Firebase account');
+    triggerToast('Switched to Guest Mode — Data saved locally');
   };
 
   // Apply Theme to document root
