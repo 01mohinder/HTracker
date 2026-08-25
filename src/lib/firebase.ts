@@ -21,6 +21,12 @@ import {
   onSnapshot,
   serverTimestamp
 } from 'firebase/firestore';
+import { 
+  getStorage, 
+  ref as storageRef, 
+  uploadBytes, 
+  getDownloadURL 
+} from 'firebase/storage';
 import firebaseConfig from '../../firebase-applet-config.json';
 
 // All-or-nothing config validation: never mix fields from different projects
@@ -85,6 +91,7 @@ function initDb() {
 }
 
 export const db = initDb();
+export const storage = getStorage(app);
 
 export { 
   GoogleAuthProvider,
@@ -98,7 +105,10 @@ export {
   setDoc, 
   getDoc, 
   onSnapshot,
-  serverTimestamp
+  serverTimestamp,
+  storageRef,
+  uploadBytes,
+  getDownloadURL
 };
 export type { FirebaseUser };
 
