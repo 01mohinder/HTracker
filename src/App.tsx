@@ -265,6 +265,21 @@ export default function App() {
         if (cloud.stats) setStats(cloud.stats);
         if (cloud.habitNotes) setHabitNotes(cloud.habitNotes);
         if (Array.isArray(cloud.routines)) setRoutines(cloud.routines);
+      } else if (currentUser && currentUser.provider !== 'guest' && currentUser.provider !== 'local' && auth.currentUser) {
+        // If user document does not exist yet in Firestore, initialize and create it immediately
+        const initialHabits = habits.length > 0 ? habits : getInitialSampleHabits();
+        writeUserCloudState(currentUser, {
+          habits: initialHabits,
+          archivedHabits,
+          stats,
+          habitNotes,
+          routines,
+        }).then((ok) => {
+          if (ok) {
+            setSyncStatus('live');
+            setLastSyncedTime(new Date());
+          }
+        });
       }
     });
 
@@ -433,7 +448,7 @@ export default function App() {
     let userRoutines: Routine[] = RoutineEngine.getDefaultRoutines();
 
     if (user.provider === 'guest' || options?.importGuestData) {
-      userHabits = getInitialSampleHabits();
+      userHabits = habits.length > 0 ? habits : getInitialSampleHabits();
     } else {
       // Check Cloud Firebase Firestore state
       try {
@@ -444,6 +459,16 @@ export default function App() {
           userStats = cloud.stats || userStats;
           userNotes = cloud.habitNotes || {};
           userRoutines = Array.isArray(cloud.routines) && cloud.routines.length ? cloud.routines : RoutineEngine.getDefaultRoutines();
+        } else {
+          // Brand new cloud user: carry over current habits or default habits and create the Firestore document
+          userHabits = habits.length > 0 ? habits : getInitialSampleHabits();
+          writeUserCloudState(user, {
+            habits: userHabits,
+            archivedHabits: userArchived,
+            stats: userStats,
+            habitNotes: userNotes,
+            routines: userRoutines,
+          }).catch(() => {});
         }
       } catch (fsErr) {
         console.warn('Firestore user_data initial check note:', fsErr);
