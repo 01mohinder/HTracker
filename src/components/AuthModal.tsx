@@ -28,6 +28,7 @@ import {
   firebaseSignOut,
   updateProfile,
 } from '../lib/firebase';
+import { syncUserRecordToMongoDB } from '../lib/userService';
 
 interface AuthModalProps {
   isOpen: boolean;
@@ -72,6 +73,12 @@ export const AuthModal: React.FC<AuthModalProps> = ({
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   const executeLoginAndSyncMongo = async (user: UserAccount, opts: { importGuestData: boolean }) => {
+    // Explicitly synchronize user directly to MongoDB Atlas upon login
+    if (user.email && user.name && user.provider !== 'guest' && user.provider !== 'local') {
+      syncUserRecordToMongoDB(user.name, user.email, user.id).catch((e) => {
+        console.warn('[AuthModal] MongoDB sync notice:', e);
+      });
+    }
     onLogin(user, opts);
   };
 

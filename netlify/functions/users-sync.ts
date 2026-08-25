@@ -1,3 +1,4 @@
+import { syncUserToMongo } from '../../server/mongodb';
 import { syncUserRecord } from '../../server/db';
 
 interface NetlifyEvent {
@@ -6,87 +7,77 @@ interface NetlifyEvent {
   headers: Record<string, string | undefined>;
 }
 
-const VALID_DEVICE_TYPES = new Set(['Laptop', 'Mobile', 'Tablet', 'Unknown']);
-
 export const handler = async (event: NetlifyEvent) => {
   if (event.httpMethod !== 'POST') {
     return {
       statusCode: 405,
-      headers: { 'Content-Type': 'application/json' },
+      headers: {
+        'Content-Type': 'application/json',
+        'Access-Control-Allow-Origin': '*',
+        'Access-Control-Allow-Headers': 'Content-Type, Authorization',
+      },
       body: JSON.stringify({ error: 'Method not allowed' }),
     };
   }
 
   try {
     const payload = event.body ? JSON.parse(event.body) : {};
-    let { userName, email, deviceId, deviceType, grindScore, totalHabits } = payload;
+    let { userName, email, uniqueId, id } = payload;
 
-    const targetEmail = typeof email === 'string' ? email.trim().toLowerCase() : '';
-    if (!targetEmail || !targetEmail.includes('@')) {
+    const cleanEmail = typeof email === 'string' ? email.trim().toLowerCase() : '';
+    if (!cleanEmail || !cleanEmail.includes('@')) {
       return {
         statusCode: 400,
-        headers: { 'Content-Type': 'application/json' },
+        headers: {
+          'Content-Type': 'application/json',
+          'Access-Control-Allow-Origin': '*',
+        },
         body: JSON.stringify({ error: 'Missing or invalid required field: email' }),
       };
     }
 
-    if (!userName || typeof userName !== 'string' || !userName.trim()) {
-      return {
-        statusCode: 400,
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ error: 'Missing or invalid required field: userName' }),
-      };
-    }
+    const cleanName = typeof userName === 'string' && userName.trim() ? userName.trim() : 'Champion';
+    const targetUniqueId = (uniqueId || id || `usr_${cleanEmail.replace(/[^a-zA-Z0-9]/g, '_')}`).trim();
 
-    const userAgent = String(event.headers['user-agent'] || 'unknown');
-    const safeDeviceType =
-      typeof deviceType === 'string' && VALID_DEVICE_TYPES.has(deviceType)
-        ? (deviceType as 'Laptop' | 'Mobile' | 'Tablet' | 'Unknown')
-        : userAgent.includes('Mobile')
-        ? 'Mobile'
-        : 'Laptop';
-
-    const cleanGrindScore =
-      typeof grindScore === 'number' && Number.isFinite(grindScore)
-        ? Math.max(0, Math.min(100, Math.round(grindScore)))
-        : undefined;
-
-    const cleanTotalHabits =
-      typeof totalHabits === 'number' && Number.isFinite(totalHabits)
-        ? Math.max(0, Math.min(500, Math.round(totalHabits)))
-        : undefined;
-
-    const cleanDeviceId =
-      typeof deviceId === 'string' ? deviceId.slice(0, 100).replace(/[^\w-]/g, '') : undefined;
-
-    const result = await syncUserRecord(userName.trim().slice(0, 100), targetEmail.slice(0, 150), {
-      deviceId: cleanDeviceId,
-      deviceType: safeDeviceType,
-      userAgent: userAgent.slice(0, 200),
-      grindScore: cleanGrindScore,
-      totalHabits: cleanTotalHabits,
+    // 1. Synchronize directly with MongoDB Atlas
+    const mongoResult = await syncUserToMongo({
+      uniqueId: targetUniqueId,
+      email: cleanEmail,
+      userName: cleanName,
     });
+
+    // 2. Also keep server DB record updated
+    syncUserRecord(cleanName, cleanEmail, { deviceId: targetUniqueId }).catch(() => {});
 
     return {
       statusCode: 200,
-      headers: { 'Content-Type': 'application/json' },
+      headers: {
+        'Content-Type': 'application/json',
+        'Access-Control-Allow-Origin': '*',
+      },
       body: JSON.stringify({
-        returningVisitors: result.user.returningVisitors,
-        dateOfFirstJoin: result.user.dateOfFirstJoin,
-        userName: result.user.userName,
-        email: result.user.email,
-        storage: result.storage,
-        message: result.message,
+        uniqueId: mongoResult.user.uniqueId,
+        dateOfFirstJoin: mongoResult.user.dateOfFirstJoin,
+        email: mongoResult.user.email,
+        userName: mongoResult.user.userName,
+        returningVisitors: mongoResult.user.returningVisitors,
+        lastActivedate: mongoResult.user.lastActivedate,
+        storage: mongoResult.storage,
+        message: 'User record successfully synchronized to MongoDB',
       }),
     };
   } catch (error: any) {
     console.error('[Netlify Users Sync Error]:', error);
     return {
       statusCode: 500,
-      headers: { 'Content-Type': 'application/json' },
+      headers: {
+        'Content-Type': 'application/json',
+        'Access-Control-Allow-Origin': '*',
+      },
       body: JSON.stringify({
         error: 'Failed to sync user data. Please try again later.',
       }),
     };
   }
 };
+
