@@ -6,10 +6,42 @@ body {
 }
 
 /* -------------------------------------------------------------------------- */
+/* THEME COLOR ACCENTS & INTERACTIVE HOVER BEHAVIOR */
+/* -------------------------------------------------------------------------- */
+:root {
+  --theme-accent: #6366f1;
+  --theme-accent-hover: rgba(99, 102, 241, 0.15);
+  --theme-accent-text: #818cf8;
+}
+
+/* Base Theme Tab & Pill classes */
+.theme-tab-btn-active,
+.theme-pill-active {
+  background-color: #6366f1 !important;
+  color: #ffffff !important;
+  box-shadow: 0 4px 14px 0 rgba(99, 102, 241, 0.35) !important;
+}
+
+.theme-tab-btn-inactive,
+.theme-pill-inactive {
+  transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.theme-tab-btn-inactive:hover,
+.theme-pill-inactive:hover {
+  background-color: rgba(99, 102, 241, 0.15) !important;
+  color: #a5b4fc !important;
+  border-color: rgba(99, 102, 241, 0.3) !important;
+}
+
+/* -------------------------------------------------------------------------- */
 /* LIGHT THEME (ULTRA CLEAN, HIGH CONTRAST & PLEASANT TO LOOK AT) */
 /* -------------------------------------------------------------------------- */
 html.light {
   color-scheme: light;
+  --theme-accent: #4f46e5;
+  --theme-accent-hover: rgba(79, 70, 229, 0.12);
+  --theme-accent-text: #4338ca;
 }
 
 html.light body {
@@ -21,6 +53,30 @@ html.light header {
   background-color: rgba(255, 255, 255, 0.95) !important;
   border-color: #e2e8f0 !important;
   box-shadow: 0 4px 12px -2px rgba(15, 23, 42, 0.05) !important;
+}
+
+/* Light Mode Tab Navigation Container */
+html.light .theme-nav-tabs-container {
+  background-color: #f1f5f9 !important;
+  border-color: #e2e8f0 !important;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.04) !important;
+}
+
+html.light .theme-tab-btn-active,
+html.light .theme-pill-active {
+  background-color: #4f46e5 !important;
+  color: #ffffff !important;
+  box-shadow: 0 4px 12px 0 rgba(79, 70, 229, 0.3) !important;
+}
+
+html.light .theme-tab-btn-inactive {
+  color: #64748b !important;
+}
+
+html.light .theme-tab-btn-inactive:hover,
+html.light .theme-pill-inactive:hover {
+  background-color: rgba(79, 70, 229, 0.12) !important;
+  color: #4338ca !important;
 }
 
 /* Light mode text color fixes for non-dark surfaces */
@@ -251,6 +307,19 @@ html.midnight .bg-slate-800\/80 {
   border-color: #3a506b !important;
 }
 
+html.midnight .theme-tab-btn-active,
+html.midnight .theme-pill-active {
+  background-color: #2563eb !important;
+  color: #ffffff !important;
+  box-shadow: 0 4px 14px 0 rgba(37, 99, 235, 0.45) !important;
+}
+
+html.midnight .theme-tab-btn-inactive:hover,
+html.midnight .theme-pill-inactive:hover {
+  background-color: rgba(37, 99, 235, 0.25) !important;
+  color: #60a5fa !important;
+}
+
 /* -------------------------------------------------------------------------- */
 /* CYBERPUNK THEME */
 /* -------------------------------------------------------------------------- */
@@ -275,6 +344,19 @@ html.cyberpunk .bg-slate-800\/80 {
   border-color: #d946ef50 !important;
 }
 
+html.cyberpunk .theme-tab-btn-active,
+html.cyberpunk .theme-pill-active {
+  background-color: #d946ef !important;
+  color: #ffffff !important;
+  box-shadow: 0 4px 16px 0 rgba(217, 70, 239, 0.5) !important;
+}
+
+html.cyberpunk .theme-tab-btn-inactive:hover,
+html.cyberpunk .theme-pill-inactive:hover {
+  background-color: rgba(217, 70, 239, 0.25) !important;
+  color: #f472b6 !important;
+}
+
 /* -------------------------------------------------------------------------- */
 /* EMERALD ZEN THEME */
 /* -------------------------------------------------------------------------- */
@@ -297,6 +379,19 @@ html.emerald .bg-slate-800\/60,
 html.emerald .bg-slate-800\/80 {
   background-color: #143e2d !important;
   border-color: #10b98150 !important;
+}
+
+html.emerald .theme-tab-btn-active,
+html.emerald .theme-pill-active {
+  background-color: #059669 !important;
+  color: #ffffff !important;
+  box-shadow: 0 4px 16px 0 rgba(16, 185, 129, 0.4) !important;
+}
+
+html.emerald .theme-tab-btn-inactive:hover,
+html.emerald .theme-pill-inactive:hover {
+  background-color: rgba(16, 185, 129, 0.25) !important;
+  color: #34d399 !important;
 }
 
 /* Custom Scrollbars */

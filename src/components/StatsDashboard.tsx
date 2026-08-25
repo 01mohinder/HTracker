@@ -154,8 +154,8 @@ export const StatsDashboard: React.FC<StatsDashboardProps> = ({ habits }) => {
               onClick={() => setPeriodDays(d)}
               className={`px-3 py-1 rounded-xl text-xs font-bold transition-all ${
                 periodDays === d
-                  ? 'bg-indigo-600 text-white shadow-sm'
-                  : 'bg-slate-800 text-slate-400 hover:text-slate-200'
+                  ? 'theme-pill-active bg-indigo-600 text-white shadow-sm'
+                  : 'theme-pill-inactive bg-slate-800 text-slate-400 hover:text-indigo-400 hover:bg-indigo-500/10'
               }`}
             >
               {d === 365 ? '1 Year' : `${d}D`}

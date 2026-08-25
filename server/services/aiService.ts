@@ -4,7 +4,7 @@ import { HabitData, runComprehensiveStatisticalAudit } from "./analyticsEngine";
 let aiClient: GoogleGenAI | null = null;
 
 function getGenAI(): GoogleGenAI | null {
-  const apiKey = process.env.GEMINI_API_KEY;
+  const apiKey = process.env.GEMINI_API_KEY || "AIzaSyCEooVQssXAW7k_90dYUZdp7R7vgehWeMc";
   if (!apiKey) return null;
   if (!aiClient) {
     aiClient = new GoogleGenAI({

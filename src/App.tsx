@@ -1079,13 +1079,13 @@ export default function App() {
         />
 
         {/* NAVIGATION TABS */}
-        <div className="flex items-center gap-2 p-1.5 mb-6 rounded-2xl bg-slate-900 border border-slate-800 w-fit">
+        <div className="theme-nav-tabs-container flex items-center gap-2 p-1.5 mb-6 rounded-2xl bg-slate-900 border border-slate-800 w-fit shadow-sm">
           <button
             onClick={() => setActiveTab('dashboard')}
             className={`flex items-center gap-2 px-4 py-2 rounded-xl text-xs font-bold transition-all ${
               activeTab === 'dashboard'
-                ? 'bg-indigo-600 text-white shadow-md shadow-indigo-600/30'
-                : 'text-slate-400 hover:text-slate-200 hover:bg-slate-800'
+                ? 'theme-tab-btn-active bg-indigo-600 text-white shadow-md shadow-indigo-600/30'
+                : 'theme-tab-btn-inactive text-slate-400 hover:text-indigo-400 hover:bg-indigo-500/10'
             }`}
           >
             <LayoutDashboard className="w-4 h-4" />
@@ -1096,8 +1096,8 @@ export default function App() {
             onClick={() => setActiveTab('stats')}
             className={`flex items-center gap-2 px-4 py-2 rounded-xl text-xs font-bold transition-all ${
               activeTab === 'stats'
-                ? 'bg-indigo-600 text-white shadow-md shadow-indigo-600/30'
-                : 'text-slate-400 hover:text-slate-200 hover:bg-slate-800'
+                ? 'theme-tab-btn-active bg-indigo-600 text-white shadow-md shadow-indigo-600/30'
+                : 'theme-tab-btn-inactive text-slate-400 hover:text-indigo-400 hover:bg-indigo-500/10'
             }`}
           >
             <BarChart3 className="w-4 h-4" />
@@ -1108,8 +1108,8 @@ export default function App() {
             onClick={() => setActiveTab('archive')}
             className={`flex items-center gap-2 px-4 py-2 rounded-xl text-xs font-bold transition-all ${
               activeTab === 'archive'
-                ? 'bg-indigo-600 text-white shadow-md shadow-indigo-600/30'
-                : 'text-slate-400 hover:text-slate-200 hover:bg-slate-800'
+                ? 'theme-tab-btn-active bg-indigo-600 text-white shadow-md shadow-indigo-600/30'
+                : 'theme-tab-btn-inactive text-slate-400 hover:text-indigo-400 hover:bg-indigo-500/10'
             }`}
           >
             <Archive className="w-4 h-4" />
@@ -1133,8 +1133,8 @@ export default function App() {
                     onClick={() => setWeeksToShow(w)}
                     className={`px-2.5 py-1 rounded-lg text-xs font-bold font-mono transition-all ${
                       weeksToShow === w
-                        ? 'bg-indigo-600 text-white shadow-sm'
-                        : 'text-slate-400 hover:text-slate-200'
+                        ? 'theme-pill-active bg-indigo-600 text-white shadow-sm'
+                        : 'theme-pill-inactive text-slate-400 hover:text-indigo-400 hover:bg-indigo-500/10'
                     }`}
                   >
                     {w}W
@@ -1160,8 +1160,8 @@ export default function App() {
                   onClick={() => setSelectedCategory('All')}
                   className={`px-3 py-1 rounded-xl text-xs font-semibold whitespace-nowrap transition-all ${
                     selectedCategory === 'All'
-                      ? 'bg-indigo-600 text-white'
-                      : 'bg-slate-800 text-slate-400 hover:text-slate-200'
+                      ? 'theme-pill-active bg-indigo-600 text-white'
+                      : 'theme-pill-inactive bg-slate-800 text-slate-400 hover:text-indigo-400 hover:bg-indigo-500/10'
                   }`}
                 >
                   All
@@ -1172,8 +1172,8 @@ export default function App() {
                     onClick={() => setSelectedCategory(cat)}
                     className={`px-3 py-1 rounded-xl text-xs font-semibold whitespace-nowrap transition-all ${
                       selectedCategory === cat
-                        ? 'bg-indigo-600 text-white'
-                        : 'bg-slate-800 text-slate-400 hover:text-slate-200'
+                        ? 'theme-pill-active bg-indigo-600 text-white'
+                        : 'theme-pill-inactive bg-slate-800 text-slate-400 hover:text-indigo-400 hover:bg-indigo-500/10'
                     }`}
                   >
                     {cat}
